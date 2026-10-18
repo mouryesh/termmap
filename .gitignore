@@ -20,3 +20,7 @@ __pycache__/
 .claude/settings.local.json*
 ml_pipeline/data_profile.json
 ml_pipeline/.test_fingerprint*
+
+# contain short example terms from the training data; submitted directly, never committed
+reports/validation.md
+docs/TermMap_writeup.pdf
