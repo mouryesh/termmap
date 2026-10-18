@@ -56,7 +56,8 @@ def run(cfg: dict, systems: tuple[str, ...] = (ICD, SNOMED)) -> dict:
         cands = pd.read_parquet(cv_dir / f"candidates_ce_{s}.parquet").reset_index(drop=True)
         table = pd.read_parquet(art / "index" / f"{s}_table.parquet")
         meta = pd.read_parquet(art / "index" / f"{s}_meta.parquet")
-        fb = FeatureBuilder(s, table, meta, CandidateText(s, table, meta))
+        fb = FeatureBuilder(s, table, meta, CandidateText(s, table, meta),
+                            cfg.get("features", {}).get("qualifier_version", 1))
         res = {"rows": len(rows),
                "pool_ceiling": round(100 * cands.groupby("row")["gold"].max().sum() / len(rows), 1)}
         for name, ce_col in SETTINGS.items():

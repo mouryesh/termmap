@@ -37,7 +37,9 @@ def description_table(d: Dictionary) -> pd.DataFrame:
 
 def load_dictionaries(cfg: dict) -> dict[str, Dictionary]:
     art = cfg["paths"]["artifacts"]
-    return {ICD: load_icd(cfg["paths"]["icd_dict"], art), SNOMED: load_snomed(cfg["paths"]["snomed_dict"], art)}
+    dc = cfg.get("dictionaries", {})
+    return {ICD: load_icd(cfg["paths"]["icd_dict"], art, dc.get("icd_title", "first")),
+            SNOMED: load_snomed(cfg["paths"]["snomed_dict"], art, dc.get("snomed_tag", "any"))}
 
 
 def _stamp(cfg: dict) -> dict:
@@ -158,6 +160,8 @@ class Retriever:
         self.sib_top = cfg["retrieval"]["sibling_expand_top"]
         self.max_words = cfg["retrieval"]["long_term_words"]
         self.channels = tuple(cfg["retrieval"].get("channels", CHANNELS))
+        # per-system {system: {channel: w}} or one shared {channel: w}; missing channel -> weight 1
+        self.weights = dict(cfg["retrieval"].get("channel_weights", {}))
         self._dict_cache: dict[tuple[str, str], dict[str, Ranking]] = {}
         self._emb_cache: dict[str, np.ndarray] = {}
 
@@ -211,7 +215,9 @@ class Retriever:
              top_k: int | None = None) -> Candidates:
         """RRF over channels, top K, ICD sibling expansion, embedded codes appended."""
         top_k = top_k or self.top_k
-        fused = rrf([per[ch] for ch in per], self.k)[:top_k]
+        chans = list(per)
+        w = self.weights.get(system, self.weights)
+        fused = rrf([per[ch] for ch in chans], self.k, [float(w.get(ch, 1.0)) for ch in chans])[:top_k]
         ranks = {}
         for ch, r in per.items():
             for i, (code, _) in enumerate(r, start=1):

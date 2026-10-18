@@ -50,6 +50,7 @@ Model rationale:
 - Step 14 final test: not run internally (3-fold grouped CV only: ICD 61.5, SNOMED 50.0); the organisers' hidden evaluation set is the test.
 
 ## Gate approvals
+- Override: M6/v2 - user approved full v2 build 2026-10-18 - reason: deadline upgrade before training.
 - Gate A: approved 2026-10-17
 - Gate B: approved 2026-10-17
 - Gate C: approved 2026-10-18

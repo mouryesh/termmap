@@ -33,6 +33,9 @@ rerank:
   context_chars: 100
   context_dropout: 0.5
 
+predict:
+  device: cuda   # pinned (audit A10); falls back to CPU with a warning; GPU (fp16) and CPU (fp32) numerics differ
+
 hierarchy:
   category_margin: 0.05
 

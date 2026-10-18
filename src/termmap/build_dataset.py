@@ -42,11 +42,18 @@ def heldout_codes(df: pd.DataFrame, system: str, frac: float, seed: int) -> set[
     return set(rng.choice(codes, size=int(round(frac * len(codes))), replace=False).tolist())
 
 
-def candidate_frame(system: str, row_ids: list[int], gold: list[str | None], cands: list, ce_top: int) -> pd.DataFrame:
+def ce_scope(rc: dict, system: str) -> tuple[int, bool]:
+    """(fused top-N, score ICD siblings?) for the cross-encoder; ce_top may be an int or a per-system map."""
+    top = rc["ce_top"][system] if isinstance(rc["ce_top"], dict) else rc["ce_top"]
+    return int(top), bool(rc.get("ce_siblings", False)) and system == ICD
+
+
+def candidate_frame(system: str, row_ids: list[int], gold: list[str | None], cands: list, ce_top: int,
+                    ce_siblings: bool = False) -> pd.DataFrame:
     """Flatten Stage 2 Candidates into one row per (training row, candidate code).
 
-    in_ce marks what the cross-encoder scores: fused top-`ce_top` plus embedded codes.
-    Sibling-expanded codes are ranked by LambdaRank without a cross-encoder score.
+    in_ce marks what the cross-encoder scores: fused top-`ce_top` plus embedded codes, plus (with
+    ce_siblings, ICD only; audit A4) every sibling expanded from the fused top-20.
     """
     recs = []
     for rid, g, c in zip(row_ids, gold, cands):
@@ -60,7 +67,8 @@ def candidate_frame(system: str, row_ids: list[int], gold: list[str | None], can
                 "fused_rank": fr if fr is not None else 999, "rrf": rrf_score.get(code, 0.0),
                 "rank_char": r.get("char", 999), "rank_dense": r.get("dense", 999), "rank_memory": r.get("memory", 999),
                 "expanded": int(fr is None and code not in c.embedded), "embedded": int(code in c.embedded),
-                "in_ce": int((fr is not None and fr <= ce_top) or code in c.embedded),
+                "in_ce": int((fr is not None and fr <= ce_top) or code in c.embedded
+                             or (ce_siblings and fr is None)),
             })
     out = pd.DataFrame(recs)
     out["system"] = system
@@ -85,7 +93,7 @@ def oof_candidates(cfg: dict, df: pd.DataFrame, idx, retr) -> dict[str, pd.DataF
             for raw, per in zip(t["entity"], per_rows):
                 ei, es = embedded_codes(raw, idx.sys[ICD].codes, idx.sys[SNOMED].codes)
                 cands.append(retr.fuse(s, per, ei if s == ICD else es))
-            fr = candidate_frame(s, t.index.tolist(), t["code"].tolist(), cands, cfg["rerank"]["ce_top"])
+            fr = candidate_frame(s, t.index.tolist(), t["code"].tolist(), cands, *ce_scope(cfg["rerank"], s))
             fr["fold"] = int(f)
             out[s].append(fr)
         log.info("candidates fold %d done", f)

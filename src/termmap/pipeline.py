@@ -14,7 +14,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from termmap.build_dataset import build_rows, candidate_frame
+from termmap.build_dataset import build_rows, candidate_frame, ce_scope
 from termmap.coupling import CodeEmbeddings, CooccurrenceTable, couple
 from termmap.hierarchy import choose_argmax, choose_icd, group_softmax
 from termmap.io import ICD, SNOMED, SYSTEMS, load_inference_input
@@ -58,8 +58,15 @@ class Predictor:
         from termmap.rerank.features import FeatureBuilder
 
         self.cfg = cfg
-        if device is None and os.environ.get("TERMMAP_USE_GPU", "1") == "0":
-            device = "cpu"
+        if device is None:  # config pins the device (audit A10); TERMMAP_USE_GPU=0 forces CPU
+            device = cfg.get("predict", {}).get("device", "cuda")
+            if os.environ.get("TERMMAP_USE_GPU", "1") == "0":
+                device = "cpu"
+            if device == "cuda":
+                import torch
+                if not torch.cuda.is_available():
+                    log.warning("predict.device=cuda but CUDA is unavailable; using CPU (numerics differ)")
+                    device = "cpu"
         self.idx = Indexes(cfg, device=device)
         self.retr = Retriever(self.idx, cfg)
         md = model_dir(cfg)
@@ -82,7 +89,7 @@ class Predictor:
             table = self.idx.sys[s].table
             meta = metas[s] = pd.read_parquet(art / "index" / f"{s}_meta.parquet")
             self.ctext[s] = CandidateText(s, table, meta)
-            self.fb[s] = FeatureBuilder(s, table, meta, self.ctext[s])
+            self.fb[s] = FeatureBuilder(s, table, meta, self.ctext[s], cfg.get("features", {}).get("qualifier_version", 1))
             self.ce[s] = CrossEncoder(str(md / f"ce_{s}"), device=self.idx.encoder.device,
                                       max_len=cfg["rerank"]["max_len"])
             self.ltr[s] = joblib.load(md / f"ltr_{s}.joblib")
@@ -94,7 +101,7 @@ class Predictor:
         from termmap.rerank.cross_encoder import score_candidates
 
         rc = self.cfg["rerank"]
-        cf = candidate_frame(s, rows.index.tolist(), [None] * len(rows), cands, rc["ce_top"])
+        cf = candidate_frame(s, rows.index.tolist(), [None] * len(rows), cands, *ce_scope(rc, s))
         if cf.empty:
             return cf
         cf["ce_ctx"] = score_candidates(self.ce[s], rows, cf, self.ctext[s], True, rc["context_chars"])

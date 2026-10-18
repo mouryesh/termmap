@@ -18,6 +18,9 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
     with open(path) as f:
         cfg = yaml.safe_load(f)
     cfg["paths"] = {k: str((REPO_ROOT / v).resolve()) for k, v in cfg["paths"].items()}
+    rc = cfg.get("rerank", {})
+    if "negatives_ltr_oof_dir" in rc:
+        rc["negatives_ltr_oof_dir"] = str((REPO_ROOT / rc["negatives_ltr_oof_dir"]).resolve())
     return cfg
 
 

@@ -256,14 +256,15 @@ def evaluate_m5(cfg: dict) -> dict:
             cooc = CooccurrenceTable(list(zip(rows.loc[tr[ICD], "code"], rows.loc[tr[SNOMED], "code"])))
             # lambda chosen without the held-out fold; inner co-occurrence excludes each inner fold
             scores = {}
-            for l in LAMBDAS:
+            lambdas = tuple(cfg["coupling"].get("lambdas", LAMBDAS))
+            for l in lambdas:
                 tot = 0
                 for g in sorted(tr["fold"].unique()):
                     inner_tr, inner_te = tr[tr.fold != g], tr[tr.fold == g]
                     c_in = CooccurrenceTable(list(zip(rows.loc[inner_tr[ICD], "code"], rows.loc[inner_tr[SNOMED], "code"])))
                     tot += sum(run_pairs(inner_te, c_in, l, mode))
                 scores[l] = tot
-            lam = max(LAMBDAS, key=lambda l: (scores[l], -l))
+            lam = max(lambdas, key=lambda l: (scores[l], -l))
             chosen.append(lam)
             a, b = run_pairs(te, cooc, lam, mode)
             a0, b0 = run_pairs(te, cooc, 0.0, mode)
@@ -296,3 +297,51 @@ def evaluate_m5(cfg: dict) -> dict:
                        "curve": coverage_curve(conf, ok)}
     res["confidence"] = conf_res
     return res
+
+
+# ---------------------------------------------------------------- A9: weighted RRF channel weights
+WEIGHT_GRID = {"bm25": (0.0, 0.25, 0.5, 0.75, 1.0), "char": (0.5, 1.0), "dense": (1.0, 1.5, 2.0),
+               "memory": (1.0, 1.5, 2.0)}
+
+
+def tune_rrf_weights(cfg: dict, idx: Indexes | None = None, retr: Retriever | None = None) -> dict:
+    """Out-of-fold channel rankings (3 folds, all rows), then a grid search of per-system RRF weights
+    maximizing recall@80 (ties: recall@30, then smaller BM25 weight). Equal weights are in the grid."""
+    import itertools
+
+    from termmap.retrieval.fusion import rrf
+
+    idx = idx or Indexes(cfg)
+    retr = retr or Retriever(idx, cfg)
+    rows = pd.read_parquet(Path(cfg["paths"]["artifacts"]) / "cv" / "rows.parquet")
+    chans = ("bm25", "char", "dense", "memory")
+    per_sys: dict[str, list] = {s: [] for s in SYSTEMS}
+    for f in sorted(rows["fold"].unique()):
+        tr, te = rows[rows.fold != f], rows[rows.fold == f]
+        abbr = mine_abbreviations(tr["term_norm"].tolist(), tr["display_norm"].tolist())
+        for s in SYSTEMS:
+            t = te[te.coding_system == s]
+            mem = memory_for(tr[tr.coding_system == s], retr)
+            variants = [query_variants(x, idx.spell, abbr) for x in t["term_norm"]]
+            per_rows = retr.channel_rankings(s, variants, mem, channels=chans)
+            per_sys[s].extend((g, [[c for c, _ in p[ch]] for ch in chans]) for g, p in zip(t["code"], per_rows))
+        log.info("A9 channel rankings: fold %d done", f)
+    out: dict = {}
+    for s in SYSTEMS:
+        data = per_sys[s]
+        log.info("A9 %s: %d rows", s, len(data))
+        results = []
+        for w in itertools.product(*(WEIGHT_GRID[c] for c in chans)):
+            hits = np.zeros(3)
+            for gold, ranks in data:
+                fused = [c for c, _ in rrf([[(c, 0.0) for c in r] for r in ranks], cfg["retrieval"]["rrf_k"], w)[:80]]
+                pos = fused.index(gold) + 1 if gold in fused else 10**6
+                hits += [pos <= 10, pos <= 30, pos <= 80]
+            results.append((tuple(round(100 * h / len(data), 2) for h in hits), w))
+        best = max(results, key=lambda r: (r[0][2], r[0][1], -r[1][0]))
+        equal = next(r for r in results if r[1] == (1.0, 1.0, 1.0, 1.0))
+        nobm25 = next(r for r in results if r[1] == (0.0, 1.0, 1.0, 1.0))
+        out[s] = {"rows": len(data), "best_weights": dict(zip(chans, best[1])), "best_R@10/30/80": best[0],
+                  "equal_R@10/30/80": equal[0], "no_bm25_R@10/30/80": nobm25[0]}
+        log.info("A9 %s: %s", s, out[s])
+    return out

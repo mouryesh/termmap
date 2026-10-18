@@ -46,6 +46,10 @@ def run(cfg: dict, systems: tuple[str, ...] = (ICD, SNOMED), final: bool = True)
         table = pd.read_parquet(art / "index" / f"{s}_table.parquet")
         ctext = CandidateText(s, table, metas[s])
         children = icd_children_map(set(metas[s].index)) if s == ICD else None
+        neg_source = rc.get("negatives", "fused")
+        ltr_scores = pd.read_parquet(Path(rc["negatives_ltr_oof_dir"]) / f"ltr_oof_{s}.parquet") \
+            if neg_source == "ltr" else None
+        listwise = rc.get("loss", "bce") == "listwise"
         srows = rows[rows.coding_system == s]
         hist = {}
         for f in sorted(srows["fold"].unique()):
@@ -62,8 +66,10 @@ def run(cfg: dict, systems: tuple[str, ...] = (ICD, SNOMED), final: bool = True)
             torch.manual_seed(seed + int(f))
             tr_all, te = srows[srows.fold != f], srows[srows.fold == f]
             tr, va = _val_split(tr_all, rc["val_frac"], seed + int(f))
-            a, b, y = build_training_pairs(tr, cands, ctext, s, rc["n_negatives"], rc["context_dropout"],
-                                           rc["context_chars"], seed + int(f), children)
+            built = build_training_pairs(tr, cands, ctext, s, rc["n_negatives"], rc["context_dropout"],
+                                         rc["context_chars"], seed + int(f), children, neg_source, ltr_scores,
+                                         return_groups=True)
+            a, b, y, grp = built
             va_c = cands[cands.row.isin(va.index)].copy()
             ce = CrossEncoder(rc["cross_encoder"], max_len=rc["max_len"])
 
@@ -72,7 +78,9 @@ def run(cfg: dict, systems: tuple[str, ...] = (ICD, SNOMED), final: bool = True)
                 return top1_accuracy(va_c, "s", len(va))
 
             log.info("%s fold %d: %d train rows, %d val rows, %d pairs", s, f, len(tr), len(va), len(a))
-            h = ce.train_pairs(a, b, y, cfg, seed + int(f), val_fn=val_fn)
+            h = ce.train_pairs(a, b, y, cfg, seed + int(f), val_fn=val_fn, groups=grp if listwise else None)
+            h.update(train_rows=len(tr), val_rows=len(va), test_rows=len(te), groups=int(len(set(grp))),
+                     negatives=neg_source, loss=rc.get("loss", "bce"))
             te_c = cands[cands.row.isin(te.index)].copy()
             te_c["ce_ctx"] = score_candidates(ce, te, te_c, ctext, True, rc["context_chars"])
             te_c["ce_noctx"] = score_candidates(ce, te, te_c, ctext, False, rc["context_chars"])
@@ -98,15 +106,20 @@ def run(cfg: dict, systems: tuple[str, ...] = (ICD, SNOMED), final: bool = True)
         if final:
             best = [json.loads((cv_dir / f"ce_{s}_fold{f}_history.json").read_text())["best_epoch"]
                     for f in sorted(srows["fold"].unique())]
-            epochs = Counter(best).most_common(1)[0][0]
+            if rc.get("final_epochs", "mode") == "median":  # v2 (audit A1): CV-chosen count, no cap
+                epochs = int(np.ceil(np.median(best)))
+            else:  # v1
+                epochs = Counter(best).most_common(1)[0][0]
             dest = model_dir / f"ce_{s}"
             if not (dest / "config.json").exists():
                 torch.manual_seed(seed)
-                a, b, y = build_training_pairs(srows, cands, ctext, s, rc["n_negatives"], rc["context_dropout"],
-                                               rc["context_chars"], seed, children)
+                a, b, y, grp = build_training_pairs(srows, cands, ctext, s, rc["n_negatives"], rc["context_dropout"],
+                                                    rc["context_chars"], seed, children, neg_source, ltr_scores,
+                                                    return_groups=True)
                 ce = CrossEncoder(rc["cross_encoder"], max_len=rc["max_len"])
                 log.info("%s final model: %d pairs, %d epochs (CV best epochs %s)", s, len(a), epochs, best)
-                ce.train_pairs(a, b, y, cfg, seed, val_fn=None, epochs=epochs)
+                hf = ce.train_pairs(a, b, y, cfg, seed, val_fn=None, epochs=epochs, groups=grp if listwise else None)
+                (cv_dir / f"ce_{s}_final_history.json").write_text(json.dumps(hf, indent=1))
                 ce.save(dest)
                 del ce
                 torch.cuda.empty_cache()

@@ -40,10 +40,13 @@ def best_rank_merge(rankings: Sequence[Ranking]) -> Ranking:
     return sorted(((c, -float(r)) for c, r in best.items()), key=lambda kv: (-kv[1], kv[0]))
 
 
-def rrf(rankings: Sequence[Ranking], k: int = 60) -> Ranking:
-    """Reciprocal Rank Fusion: score(code) = sum over rankings of 1 / (k + rank)."""
+def rrf(rankings: Sequence[Ranking], k: int = 60, weights: Sequence[float] | None = None) -> Ranking:
+    """(Weighted) Reciprocal Rank Fusion: score(code) = sum_i w_i / (k + rank_i); equal weights by default."""
     score: dict[str, float] = {}
-    for r in rankings:
+    weights = weights if weights is not None else [1.0] * len(rankings)
+    for r, w in zip(rankings, weights):
+        if w == 0:
+            continue
         for rank, (code, _) in enumerate(r, start=1):
-            score[code] = score.get(code, 0.0) + 1.0 / (k + rank)
+            score[code] = score.get(code, 0.0) + w / (k + rank)
     return sorted(score.items(), key=lambda kv: (-kv[1], kv[0]))
