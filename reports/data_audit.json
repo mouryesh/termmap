@@ -1,0 +1,166 @@
+{
+  "dict": {
+    "icd_rows": 159195,
+    "icd_codes": 98182,
+    "icd_parent_codes": 23464,
+    "snomed_rows": 984585,
+    "snomed_concepts": 382124,
+    "snomed_top_tags": {
+      "disorder": 92702,
+      "procedure": 57581,
+      "finding": 37277,
+      "body structure": 36056,
+      "organism": 34937,
+      "substance": 27637,
+      "physical object": 14047,
+      "observable entity": 10984,
+      "qualifier value": 10706,
+      "medicinal product": 8565,
+      "clinical drug": 8355,
+      "medicinal product form": 7272
+    }
+  },
+  "rows": 9646,
+  "rows_by_system": {
+    "SNOMEDCT_US": 7340,
+    "ICD10CM": 2306
+  },
+  "instances": {
+    "total": 7522,
+    "both": 2124,
+    "snomed_only": 5216,
+    "icd_only": 182
+  },
+  "instances_with_multiple_codes_same_system": 0,
+  "dx_instances": {
+    "total": 2882,
+    "both": 2123,
+    "snomed_only": 577,
+    "icd_only": 182
+  },
+  "subconcept_counts_rows": {
+    "DiagnosisCode": 5005,
+    "ProcedureCode": 2778,
+    "LabService": 858,
+    "EncounterType": 567,
+    "Device": 437,
+    "MedicationProfileMedication": 1
+  },
+  "repetition": {
+    "ICD10CM": {
+      "rows": 2306,
+      "distinct_codes": 867,
+      "pct_rows_code_seen_elsewhere": 79.8,
+      "pct_rows_term_seen_elsewhere": 1.6,
+      "loo_exact_term_accuracy_pct": 1.6,
+      "singleton_codes": 466
+    },
+    "SNOMEDCT_US": {
+      "rows": 7340,
+      "distinct_codes": 4335,
+      "pct_rows_code_seen_elsewhere": 59.6,
+      "pct_rows_term_seen_elsewhere": 1.4,
+      "loo_exact_term_accuracy_pct": 1.0,
+      "singleton_codes": 2964
+    }
+  },
+  "invalid_codes": {
+    "rows": 2,
+    "by_system": {
+      "ICD10CM": 2
+    },
+    "examples": [
+      [
+        "ICD10CM",
+        "L6.0"
+      ]
+    ]
+  },
+  "exact_match": {
+    "ICD10CM": {
+      "pct_terms_with_exact_match": 6.6,
+      "pct_gold_among_matched": 65.6,
+      "pct_correct_when_unique_match": 66.0
+    },
+    "SNOMEDCT_US": {
+      "pct_terms_with_exact_match": 15.8,
+      "pct_gold_among_matched": 78.4,
+      "pct_correct_when_unique_match": 79.3
+    }
+  },
+  "icd_gold": {
+    "pct_unspecified": 38.9,
+    "pct_other": 21.8,
+    "pct_chapter_R": 29.9,
+    "rows_parent_gold": 43,
+    "distinct_parent_gold_codes": 24,
+    "pct_rows_parent_gold": 1.9,
+    "parent_gold_examples": [
+      "B96.2",
+      "E31.2",
+      "E34.0",
+      "E88.81",
+      "H53.14",
+      "H57.1",
+      "I24.8",
+      "I34.8",
+      "I47.1",
+      "I47.2"
+    ],
+    "terms_naming_side": 218,
+    "pct_side_terms_with_sideless_gold": 49.1,
+    "top_chapters": {
+      "R": 690,
+      "M": 293,
+      "I": 292,
+      "J": 143,
+      "E": 131,
+      "K": 102,
+      "L": 84,
+      "Z": 80
+    }
+  },
+  "snomed_dx_tags": {
+    "rows": 2700,
+    "top": {
+      "disorder": 47.9,
+      "finding": 38.9,
+      "morphologic abnormality": 2.7,
+      "situation": 2.4,
+      "observable entity": 1.9,
+      "procedure": 1.3,
+      "body structure": 1.2,
+      "qualifier value": 1.0
+    },
+    "pct_in_core5": 92.2
+  },
+  "snomed_all_tags": {
+    "finding": 25.8,
+    "procedure": 24.9,
+    "disorder": 18.9,
+    "observable entity": 6.8,
+    "physical object": 5.0,
+    "regime/therapy": 4.6,
+    "qualifier value": 3.5,
+    "situation": 2.2,
+    "substance": 1.5,
+    "record artifact": 1.0
+  },
+  "chunks": {
+    "distinct_raw": 6414,
+    "distinct_canonical": 5281,
+    "empty": 5,
+    "pct_chunks_one_entity": 78.6,
+    "paired_rows_share_chunk": true
+  },
+  "noise": {
+    "pct_terms_with_oov_word": 15.0,
+    "pct_terms_with_br": 1.1,
+    "terms_with_hcc": 33,
+    "terms_starting_negation": 15,
+    "terms_with_embedded_icd_code": 5,
+    "term_words_median": 2.0,
+    "terms_over_32_words": 1,
+    "vocab_size": 96377
+  }
+}

@@ -1,0 +1,22 @@
+# proprietary data and derived artifacts — never commit
+data/
+artifacts/
+*.csv
+!tests/fixtures/*.csv
+!reports/feature_importance_*.csv
+*.xlsx
+*.parquet
+predictions*.csv
+!tests/fixtures/*.csv
+!reports/feature_importance_*.csv
+.env
+# python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+# local
+.claude/settings.local.json*
+ml_pipeline/data_profile.json
+ml_pipeline/.test_fingerprint*

@@ -1,0 +1,47 @@
+# TermMap default configuration. All paths are relative to the repo root.
+seed: 42
+num_threads: 8
+
+paths:
+  train: data/hackathon_train.csv
+  icd_dict: data/icd10cm_codes.xlsx
+  snomed_dict: data/SNOMEDCT_US_codes_and_descriptions.xlsx
+  artifacts: artifacts
+  reports: reports
+
+cv:
+  n_folds: 3   # reduced from 5 for GPU time (approved 2026-10-17)
+
+retrieval:
+  channels: [char, dense, memory]   # BM25 dropped after M1 ablation (approved 2026-10-17)
+  rrf_k: 60
+  top_k: 80   # tuned over {30,50,80} in M1 CV: R@K ICD 79.4/83.1/88.9, SNOMED 78.7/82.3/86.0
+  sibling_expand_top: 20
+  dense_model: cambridgeltl/SapBERT-from-PubMedBERT-fulltext
+  dense_fp16: true
+  long_term_words: 32
+
+rerank:
+  cross_encoder: ncbi/MedCPT-Cross-Encoder
+  n_negatives: 15
+  lr: 2.0e-5
+  batch_size: 16
+  max_len: 128
+  epochs: 2
+  ce_top: 20          # cross-encoder scores fused top-20 (+ embedded codes); was 30 + siblings (approved 2026-10-18)
+  val_frac: 0.1
+  context_chars: 100
+  context_dropout: 0.5
+
+hierarchy:
+  category_margin: 0.05
+
+coupling:
+  lambdas: [0.0, 0.25, 0.5, 1.0, 2.0]
+  top_n: 5
+
+confidence:
+  target_precision: 0.98
+
+ltr:
+  eval_at: [10]   # early-stopping metric ndcg@10; chosen on 3-fold CV over {1,5,10,20} (top-1 within ±0.6)
