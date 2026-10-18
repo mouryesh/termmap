@@ -11,6 +11,7 @@ def main(argv: list[str] | None = None) -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("audit", help="data audit (aggregate stats) -> reports/data_audit.json")
     sub.add_parser("build-index", help="build retrieval indexes from the dictionaries")
+    sub.add_parser("prepare", help="rebuild data-derived predict artifacts (index, memory, stats) next to downloaded weights")
     sub.add_parser("train", help="all stages: candidates, cross-encoders, LambdaRank, calibration, final artifacts")
     sub.add_parser("retrieval-cv", help="M1 retrieval study: 5-fold CV with channel/variant ablations")
     pr = sub.add_parser("predict", help="predict both codes for every input row")
@@ -30,6 +31,9 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "build-index":
         from termmap.retrieval.engine import build_index
         build_index(cfg)
+    elif args.cmd == "prepare":
+        from termmap.train import prepare
+        prepare(cfg)
     elif args.cmd == "train":
         from termmap.train import train
         train(cfg)

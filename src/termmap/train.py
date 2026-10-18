@@ -22,13 +22,33 @@ from termmap.io import ICD, SNOMED, SYSTEMS
 log = logging.getLogger(__name__)
 
 
-def _save_m5(cfg: dict, m5: dict, rows: pd.DataFrame, model_dir: Path) -> None:
-    """Final coupling lambda (mode of the per-fold inner-CV choices), co-occurrence pairs, thresholds."""
+def save_cooc_pairs(rows: pd.DataFrame, model_dir: Path) -> None:
+    """(ICD, SNOMED) gold pairs of training instances that carry both codes, for the coupling step."""
     key = rows["entity"] + "\x00" + rows["chunk_text"]
     pr = pd.DataFrame({"key": key, "sys": rows["coding_system"], "code": rows["code"]})
     w = pr.pivot_table(index="key", columns="sys", values="code", aggfunc="first").dropna()
     w = w.rename(columns={ICD: "icd", SNOMED: "snomed"})[["icd", "snomed"]].reset_index(drop=True)
     w.to_parquet(model_dir / "cooc_pairs.parquet", index=False)
+
+
+def prepare(cfg: dict) -> None:
+    """Rebuild every data-derived predict artifact from the supplied dictionaries and training CSV: the
+    indexes, training memory, abbreviations, frequency stats, fallbacks and co-occurrence pairs. The trained
+    models (cross-encoders, LambdaRank, calibration JSON) come from the published weights."""
+    from termmap.build_dataset import build_rows
+    from termmap.pipeline import fit_final
+    from termmap.retrieval.engine import Indexes, Retriever, build_index
+
+    build_index(cfg)
+    idx = Indexes(cfg)
+    retr = Retriever(idx, cfg)
+    fit_final(cfg, idx, retr)
+    save_cooc_pairs(build_rows(cfg, {s: idx.sys[s].codes for s in SYSTEMS}), Path(cfg["paths"]["artifacts"]) / "model")
+
+
+def _save_m5(cfg: dict, m5: dict, rows: pd.DataFrame, model_dir: Path) -> None:
+    """Final coupling lambda (mode of the per-fold inner-CV choices), co-occurrence pairs, thresholds."""
+    save_cooc_pairs(rows, model_dir)
     lams = m5["icd_only"]["lambda_per_fold"]
     lam = float(pd.Series(lams).mode().min())
     (model_dir / "coupling.json").write_text(json.dumps(
