@@ -27,7 +27,8 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
 def set_seeds(seed: int = 42) -> None:
     """Seed Python, NumPy and torch, and switch torch to deterministic kernels."""
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-    os.environ["PYTHONHASHSEED"] = str(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)  # affects child processes only; this process never relies on
+    # set/dict iteration order for results (every ranking sorts explicitly; reruns verified byte-identical)
     random.seed(seed)
     np.random.seed(seed)
     try:

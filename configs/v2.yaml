@@ -33,6 +33,7 @@ retrieval:
       char: 1.0
       dense: 2.0
       memory: 1.5
+  dense_max_len: 64
 rerank:
   cross_encoder: ncbi/MedCPT-Cross-Encoder
   n_negatives: 15
@@ -75,3 +76,6 @@ dictionaries:
   snomed_tag: official
 features:
   qualifier_version: 2
+normalize:
+  abbr_min_support: 2
+  undotted_codes: true

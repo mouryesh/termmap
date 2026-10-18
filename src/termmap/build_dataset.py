@@ -83,7 +83,8 @@ def oof_candidates(cfg: dict, df: pd.DataFrame, idx, retr) -> dict[str, pd.DataF
     out: dict[str, list[pd.DataFrame]] = {ICD: [], SNOMED: []}
     for f in sorted(df["fold"].unique()):
         tr, te = df[df.fold != f], df[df.fold == f]
-        abbr = mine_abbreviations(tr["term_norm"].tolist(), tr["display_norm"].tolist())
+        abbr = mine_abbreviations(tr["term_norm"].tolist(), tr["display_norm"].tolist(),
+                                  cfg.get("normalize", {}).get("abbr_min_support", 1))
         for s in (ICD, SNOMED):
             t = te[te.coding_system == s]
             mem = memory_for(tr[tr.coding_system == s], retr)
@@ -91,7 +92,8 @@ def oof_candidates(cfg: dict, df: pd.DataFrame, idx, retr) -> dict[str, pd.DataF
             per_rows = retr.channel_rankings(s, variants, mem)
             cands = []
             for raw, per in zip(t["entity"], per_rows):
-                ei, es = embedded_codes(raw, idx.sys[ICD].codes, idx.sys[SNOMED].codes)
+                ei, es = embedded_codes(raw, idx.sys[ICD].codes, idx.sys[SNOMED].codes,
+                                        cfg.get("normalize", {}).get("undotted_codes", False))
                 cands.append(retr.fuse(s, per, ei if s == ICD else es))
             fr = candidate_frame(s, t.index.tolist(), t["code"].tolist(), cands, *ce_scope(cfg["rerank"], s))
             fr["fold"] = int(f)

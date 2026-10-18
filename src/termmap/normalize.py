@@ -39,6 +39,7 @@ def tokens(text: str) -> list[str]:
 _TAG_TAIL = re.compile(r"\s*\((?:[a-z /-]+)\)$")
 _ICD_IN_TERM = re.compile(r"\b([a-z][0-9][0-9a-z](?:\.[0-9a-z]{1,4})?)\b")
 _SCT_IN_TERM = re.compile(r"\b([0-9]{6,18})\b")
+_ICD_UNDOTTED = re.compile(r"\b([a-z][0-9]{2}[0-9a-z]{1,4})\b")
 _CLAUSE = re.compile(r"[,;:.]")
 
 
@@ -88,14 +89,17 @@ class SpellCorrector:
         return " ".join(out) if changed else None
 
 
-def mine_abbreviations(terms: list[str], displays: list[str]) -> dict[str, str]:
+def mine_abbreviations(terms: list[str], displays: list[str], min_support: int = 1) -> dict[str, str]:
     """Mine short form -> expansion from (normalized term, normalized gold display) training pairs.
 
     A short form is a 2-6 letter token. Its expansion is either the whole display (when the term
     is that single token) or a run of display words whose initials spell the token. Only short
-    forms with exactly one distinct expansion are kept.
+    forms with exactly one distinct expansion are kept. min_support (v2: 2) is the number of training
+    pairs that must support a whole-display expansion; initials-matched expansions need one (v1: 1).
     """
     seen: dict[str, set[str]] = {}
+    support: dict[tuple[str, str], int] = {}
+    initials: set[tuple[str, str]] = set()
     for term, disp in zip(terms, displays):
         disp = strip_semantic_tag(disp)
         dwords = tokens(disp)
@@ -111,10 +115,19 @@ def mine_abbreviations(terms: list[str], displays: list[str]) -> dict[str, str]:
                     span = dwords[i:i + len(t)]
                     if "".join(x[0] for x in span) == t:
                         exp = " ".join(span)
+                        initials.add((t, exp))
                         break
             if exp:
                 seen.setdefault(t, set()).add(exp)
-    return {k: next(iter(v)) for k, v in sorted(seen.items()) if len(v) == 1}
+                support[(t, exp)] = support.get((t, exp), 0) + 1
+    out = {}
+    for k, v in sorted(seen.items()):
+        if len(v) != 1:
+            continue
+        exp = next(iter(v))
+        if (k, exp) in initials or support[(k, exp)] >= min_support:
+            out[k] = exp
+    return out
 
 
 def abbreviation_variant(text: str, table: dict[str, str]) -> str | None:
@@ -131,10 +144,17 @@ def abbreviation_variant(text: str, table: dict[str, str]) -> str | None:
     return " ".join(out) if changed else None
 
 
-def embedded_codes(raw_term: str, icd_codes: set[str], snomed_codes: set[str]) -> tuple[list[str], list[str]]:
-    """Codes written inside the term that exist in the dictionaries: (icd, snomed)."""
+def embedded_codes(raw_term: str, icd_codes: set[str], snomed_codes: set[str],
+                   undotted: bool = False) -> tuple[list[str], list[str]]:
+    """Codes written inside the term that exist in the dictionaries: (icd, snomed).
+
+    undotted (v2): also read ICD codes written without the dot, e.g. 'E119' -> E11.9.
+    """
     t = str(raw_term).lower()
-    icd = sorted({m.upper() for m in _ICD_IN_TERM.findall(t) if m.upper() in icd_codes})
+    found = {m.upper() for m in _ICD_IN_TERM.findall(t)}
+    if undotted:
+        found |= {f"{m[:3]}.{m[3:]}".upper() for m in _ICD_UNDOTTED.findall(t)}
+    icd = sorted(c for c in found if c in icd_codes)
     sct = sorted({m for m in _SCT_IN_TERM.findall(t) if m in snomed_codes})
     return icd, sct
 

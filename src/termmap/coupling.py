@@ -65,3 +65,18 @@ def couple(icd: list[tuple[str, float]], sct: list[tuple[str, float]], lam: floa
             if best is None or key < best[0]:
                 best = (key, ic, sc, fit, co)
     return best[1], best[2], best[3], best[4]
+
+
+def coupled_icd(icd_top: list[tuple[str, float]], icd_independent: str, snomed_top: list[tuple[str, float]],
+                lam: float, cooc: CooccurrenceTable, emb: CodeEmbeddings | None) -> tuple[str, bool]:
+    """ICD-only coupling for one term: (ICD code, whether coupling overrode the independent choice).
+
+    icd_top is sorted best-first, so icd_top[0] is the argmax. When the best pair's ICD code is that
+    argmax, the independent choice (which may come from the hierarchy step) is kept.
+    """
+    if not icd_top or not snomed_top or lam <= 0:
+        return icd_independent, False
+    ic, _, _, _ = couple(icd_top, snomed_top, lam, cooc, emb)
+    if ic == icd_top[0][0]:
+        return icd_independent, False
+    return ic, True

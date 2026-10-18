@@ -65,6 +65,8 @@ _V2_RULES = [
     (re.compile(r"\b(bilateral|bilat|both)\b|(?<![a-z])b/l(?![a-z])"), ("laterality", "bilateral")),
     (re.compile(r"\b(left|lt)\b|(?<![a-z/])l(?=\.?\s+(" + _BODY + r")\b)"), ("laterality", "left")),
     (re.compile(r"\b(right|rt)\b|(?<![a-z/])r(?=\.?\s+(" + _BODY + r")\b)"), ("laterality", "right")),
+    (re.compile(r"^(?:no|neg|negative|denies|without|ø)\b|\b(?:absence of|absent|negative for|free of|nad)\b"),
+     ("negation", "negated")),
     (re.compile(r"\bacute on chronic\b"), ("acuity", "acute_on_chronic")),
     (re.compile(r"\bacute\b"), ("acuity", "acute")),
     (re.compile(r"\bchronic\b"), ("acuity", "chronic")),
@@ -94,7 +96,7 @@ def qualifiers_v2(text: str) -> set[tuple[str, str]]:
     return out
 
 
-QUAL_CLASSES_V2 = QUAL_CLASSES + ("contrast", "history", "certainty")
+QUAL_CLASSES_V2 = QUAL_CLASSES + ("contrast", "history", "certainty", "negation")
 
 
 def qualifier_features(term_q: set, code_q: set, classes: tuple[str, ...] = QUAL_CLASSES) -> dict[str, float]:

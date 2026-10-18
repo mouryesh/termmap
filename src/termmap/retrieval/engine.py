@@ -43,8 +43,19 @@ def load_dictionaries(cfg: dict) -> dict[str, Dictionary]:
 
 
 def _stamp(cfg: dict) -> dict:
-    return {"icd": file_hash(cfg["paths"]["icd_dict"]), "snomed": file_hash(cfg["paths"]["snomed_dict"]),
-            "dense_model": cfg["retrieval"]["dense_model"]}
+    st = {"icd": file_hash(cfg["paths"]["icd_dict"]), "snomed": file_hash(cfg["paths"]["snomed_dict"]),
+          "dense_model": cfg["retrieval"]["dense_model"]}
+    if cfg["retrieval"].get("dense_max_len", 32) != 32:  # non-default only, so v1 stamps stay valid
+        st["dense_max_len"] = cfg["retrieval"]["dense_max_len"]
+    return st
+
+
+def _writable(path: Path) -> Path:
+    """Remove a symlink at `path` before writing, so a workspace that links to another workspace's
+    index (artifacts_v2 -> artifacts) never overwrites the linked files."""
+    if path.is_symlink():
+        path.unlink()
+    return path
 
 
 def build_index(cfg: dict, force: bool = False) -> None:
@@ -58,26 +69,27 @@ def build_index(cfg: dict, force: bool = False) -> None:
         return
     dicts = load_dictionaries(cfg)
     model_dir = out / "sapbert"
-    enc = Encoder(cfg["retrieval"]["dense_model"])
+    _writable(model_dir)
+    enc = Encoder(cfg["retrieval"]["dense_model"], max_len=cfg["retrieval"].get("dense_max_len", 32))
     enc.save(model_dir)
     vocab: Counter = Counter()
     info = {}
     for sysname, d in dicts.items():
         t0 = time.time()
         table = description_table(d)
-        table.to_parquet(out / f"{sysname}_table.parquet", index=False)
-        d.meta.to_parquet(out / f"{sysname}_meta.parquet")  # codes + metadata; predict reads only this
+        table.to_parquet(_writable(out / f"{sysname}_table.parquet"), index=False)
+        d.meta.to_parquet(_writable(out / f"{sysname}_meta.parquet"))  # codes + metadata; predict reads only this
         texts, codes = table["text"].tolist(), table["code"].tolist()
         for s in texts:
             vocab.update(tokens(s))
-        joblib.dump(CharGramIndex(texts, codes), out / f"{sysname}_char.joblib")
-        joblib.dump(BM25Index(texts, codes), out / f"{sysname}_bm25.joblib")
+        joblib.dump(CharGramIndex(texts, codes), _writable(out / f"{sysname}_char.joblib"))
+        joblib.dump(BM25Index(texts, codes), _writable(out / f"{sysname}_bm25.joblib"))
         emb = enc.encode([encoder_text(x) for x in texts], batch_size=512)
-        np.save(out / f"{sysname}_dense.npy", emb.astype(np.float16))
+        np.save(_writable(out / f"{sysname}_dense.npy"), emb.astype(np.float16))
         info[sysname] = {"texts": len(texts), "codes": len(set(codes)), "seconds": round(time.time() - t0, 1)}
         log.info("%s index: %s", sysname, info[sysname])
-    (out / "vocab.json").write_text(json.dumps(dict(sorted(vocab.items()))))
-    manifest.write_text(json.dumps({"stamp": stamp, "info": info}, indent=2))
+    _writable(out / "vocab.json").write_text(json.dumps(dict(sorted(vocab.items()))))
+    _writable(manifest).write_text(json.dumps({"stamp": stamp, "info": info}, indent=2))
 
 
 @dataclass
@@ -104,7 +116,7 @@ class Indexes:
                 raise RuntimeError("dictionary files changed since the index was built: run `termmap build-index`")
         else:
             log.info("dictionary files not present; using the stamped index %s", manifest["stamp"])
-        self.encoder = Encoder(str(out / "sapbert"), device=device)
+        self.encoder = Encoder(str(out / "sapbert"), device=device, max_len=cfg["retrieval"].get("dense_max_len", 32))
         self.spell = SpellCorrector(json.loads((out / "vocab.json").read_text()))
         self.sys: dict[str, SystemIndex] = {}
         use_bm25 = "bm25" in cfg["retrieval"].get("channels", CHANNELS)

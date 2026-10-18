@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from termmap.build_dataset import build_rows, candidate_frame, ce_scope
-from termmap.coupling import CodeEmbeddings, CooccurrenceTable, couple
+from termmap.coupling import CodeEmbeddings, CooccurrenceTable, coupled_icd
 from termmap.hierarchy import choose_argmax, choose_icd, group_softmax
 from termmap.io import ICD, SNOMED, SYSTEMS, load_inference_input
 from termmap.normalize import embedded_codes, level1, mine_abbreviations, query_variants
@@ -34,7 +34,8 @@ def fit_final(cfg: dict, idx: Indexes, retr: Retriever) -> None:
     out = model_dir(cfg)
     out.mkdir(parents=True, exist_ok=True)
     df = build_rows(cfg, {s: idx.sys[s].codes for s in SYSTEMS})
-    abbr = mine_abbreviations(df["term_norm"].tolist(), df["display_norm"].tolist())
+    abbr = mine_abbreviations(df["term_norm"].tolist(), df["display_norm"].tolist(),
+                              cfg.get("normalize", {}).get("abbr_min_support", 1))
     (out / "abbreviations.json").write_text(json.dumps(abbr, indent=0, sort_keys=True))
     for s in SYSTEMS:
         rows = df[df.coding_system == s]
@@ -142,7 +143,8 @@ class Predictor:
             per_rows = self.retr.channel_rankings(s, variants, self.memory[s])
             cands = []
             for raw, per in zip(df["entity"], per_rows):
-                ei, es = embedded_codes(raw, self.idx.sys[ICD].codes, self.idx.sys[SNOMED].codes)
+                ei, es = embedded_codes(raw, self.idx.sys[ICD].codes, self.idx.sys[SNOMED].codes,
+                                        self.cfg.get("normalize", {}).get("undotted_codes", False))
                 cands.append(self.retr.fuse(s, per, ei if s == ICD else es))
             try:
                 cf = self._rank_system(s, rows, cands)
@@ -158,10 +160,9 @@ class Predictor:
         fits, coocs = [], []
         for ci, cs in zip(choice[ICD], choice[SNOMED]):
             fit = co = 0.0
-            if ci["top"] and cs["top"] and lam > 0:
-                ic, _, _, _ = couple(ci["top"], cs["top"], lam, self.cooc, self.code_emb)
-                if ic != ci["argmax"]:
-                    ci["code"], ci["flag"] = ic, (ci["flag"] + "|" if ci["flag"] else "") + "coupling_override"
+            ic, moved = coupled_icd(ci["top"], ci["code"], cs["top"], lam, self.cooc, self.code_emb)
+            if moved:
+                ci["code"], ci["flag"] = ic, (ci["flag"] + "|" if ci["flag"] else "") + "coupling_override"
             if ci["top"] and cs["top"]:
                 co = self.cooc(ci["code"], cs["code"])
                 fit = 0.5 * co + 0.5 * self.code_emb.cosine(ci["code"], cs["code"])

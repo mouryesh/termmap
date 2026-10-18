@@ -44,7 +44,8 @@ def retrieval_records(df_test: pd.DataFrame, system: str, retr: Retriever, memor
     per_rows = retr.channel_rankings(system, variants, memory, channels=channels)
     recs = []
     for (_, r), per, v in zip(df_test.iterrows(), per_rows, variants):
-        emb_icd, emb_sct = embedded_codes(r["entity"], idx.sys[ICD].codes, idx.sys[SNOMED].codes)
+        emb_icd, emb_sct = embedded_codes(r["entity"], idx.sys[ICD].codes, idx.sys[SNOMED].codes,
+                                          settings.get("undotted_codes", False))
         cand = retr.fuse(system, per, emb_icd if system == ICD else emb_sct)
         rec = {"system": system, "code": r["code"], "fused_rank": _rank_of(r["code"], cand.fused),
                "in_pool": r["code"] in set(cand.pool),
@@ -82,7 +83,8 @@ def run_retrieval_cv(cfg: dict, settings: dict | None = None, idx: Indexes | Non
     t0 = time.time()
     for f in sorted(df["fold"].unique()):
         tr, te = df[df.fold != f], df[df.fold == f]
-        abbr = mine_abbreviations(tr["term_norm"].tolist(), tr["display_norm"].tolist())
+        abbr = mine_abbreviations(tr["term_norm"].tolist(), tr["display_norm"].tolist(),
+                                  cfg.get("normalize", {}).get("abbr_min_support", 1))
         for s in SYSTEMS:
             mem = memory_for(tr[tr.coding_system == s], retr)
             recs = retrieval_records(te[te.coding_system == s], s, retr, mem, abbr, idx, settings)
@@ -102,7 +104,8 @@ def run_retrieval_cv(cfg: dict, settings: dict | None = None, idx: Indexes | Non
         test_groups = set(groups[test_mask.values])
         train_mask = ~df.code.isin(held) & ~pd.Series(groups).isin(test_groups).values
         tr, te = df[train_mask], df[test_mask]
-        abbr = mine_abbreviations(tr["term_norm"].tolist(), tr["display_norm"].tolist())
+        abbr = mine_abbreviations(tr["term_norm"].tolist(), tr["display_norm"].tolist(),
+                                  cfg.get("normalize", {}).get("abbr_min_support", 1))
         mem = memory_for(tr[tr.coding_system == s], retr)
         lt[s] = summarize(pd.DataFrame(retrieval_records(te, s, retr, mem, abbr, idx, settings)))
     results["long_tail"] = lt
@@ -199,7 +202,7 @@ def _top(g: pd.DataFrame, n: int = 5) -> list[tuple[str, float]]:
 def evaluate_m5(cfg: dict) -> dict:
     """Nested over folds: T, co-occurrence and lambda from the other folds; confidence on all OOF rows."""
     from termmap.confidence import coverage_curve, expected_calibration_error, threshold_for_precision
-    from termmap.coupling import CodeEmbeddings, CooccurrenceTable, couple
+    from termmap.coupling import CodeEmbeddings, CooccurrenceTable, couple, coupled_icd
     from termmap.hierarchy import choose_argmax, choose_icd, fit_temperature, group_softmax
     from termmap.retrieval.dense import Encoder
 
@@ -238,11 +241,11 @@ def evaluate_m5(cfg: dict) -> dict:
     def run_pairs(sub: pd.DataFrame, cooc, lam: float, mode: str) -> tuple[int, int]:
         ci = cs = 0
         for ri, rs in zip(sub[ICD], sub[SNOMED]):
-            ic, sc, _, _ = couple(tops[ri], topss[rs], lam, cooc, emb)
-            if ic == choose_argmax([c for c, _ in tops[ri]], np.array([p for _, p in tops[ri]])):
-                ic = indep[ICD][ri][0]  # coupling agrees with argmax: keep the hierarchy's choice
+            ic, _ = coupled_icd(tops[ri], indep[ICD][ri][0], topss[rs], lam, cooc, emb)
             if mode == "icd_only":
                 sc = indep[SNOMED][rs][0]
+            else:  # joint: the SNOMED side of the best pair
+                sc = couple(tops[ri], topss[rs], lam, cooc, emb)[1] if lam > 0 else indep[SNOMED][rs][0]
             ci += ic == gold[ri]
             cs += sc == gold[rs]
         return ci, cs
@@ -318,7 +321,8 @@ def tune_rrf_weights(cfg: dict, idx: Indexes | None = None, retr: Retriever | No
     per_sys: dict[str, list] = {s: [] for s in SYSTEMS}
     for f in sorted(rows["fold"].unique()):
         tr, te = rows[rows.fold != f], rows[rows.fold == f]
-        abbr = mine_abbreviations(tr["term_norm"].tolist(), tr["display_norm"].tolist())
+        abbr = mine_abbreviations(tr["term_norm"].tolist(), tr["display_norm"].tolist(),
+                                  cfg.get("normalize", {}).get("abbr_min_support", 1))
         for s in SYSTEMS:
             t = te[te.coding_system == s]
             mem = memory_for(tr[tr.coding_system == s], retr)
