@@ -156,6 +156,13 @@ No LLM is used (0 calls per 1,000 terms).
   1.5.0 (MIT) and the CDC FY2026 index (public domain): out-of-fold ICD recall@10/30/80 75.8/86.4/91.0 → 80.3/89.3/92.8;
   MedCPT Query Encoder channel; Qwen3-8B rewrite and SapBERT fine-tune notebooks (not run to completion).
 
+## Cost per term
+- Full evaluation-format input (7,522 rows, both systems): 13 min 47 s wall on an RTX 3050 6 GB laptop GPU, i.e.
+  **106 ms per term** batched (22.7 s model load), peak RAM 8.2 GB. Single-term calls (warm): GPU median 225 ms
+  (p95 272), CPU-only median 1.16 s (p95 1.72) with `TERMMAP_USE_GPU=0`.
+- No LLM and no API calls: 0 tokens per 1,000 terms. Largest cost: character n-gram search over 629k SNOMED
+  descriptions (about 23 ms per query string, single-threaded).
+
 ## Repository layout
 ```
 configs/default.yaml        all settings (paths, seeds, retrieval, rerank, calibration)

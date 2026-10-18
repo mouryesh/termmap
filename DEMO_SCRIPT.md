@@ -21,10 +21,14 @@ Then open `demo_predictions_debug.csv`: probability, top1-top2 margin, `low_conf
 ## 1:00-2:00 Three cases from the debug output
 Each row of `demo_inputs.csv` is one case; point at these debug columns: `icd_top5` / `snomed_top5`
 (candidates with probabilities), `icd_prob`, `icd_margin`, `icd_flags`, `icd_category_step`.
-1. **Abbreviation collision** (case 1): the abbreviation alone is ambiguous; the chart context decides.
-2. **Typo / OCR-mangled term** (case 2): the spelling variant and the character channel still retrieve the concept.
-3. **Specificity / qualifier decision** (case 3): the ICD category step picks the category first, then the code;
-   show the category decision and the margin.
+1. **Abbreviations** (row 1, `acute hypox resp fx`; row 4, `afl`): mined abbreviation expansions and the training
+   memory turn shorthand into acute respiratory failure with hypoxia / atrial flutter.
+2. **Typo** (row 2, `accupunture`): the spelling variant ("acupuncture") and the character channel still retrieve it.
+3. **Specificity / qualifier** (row 3, `... with hypoxia and hypercapnea`): the ICD pick is the "with hypoxia and
+   hypercapnia" code, not the unspecified one; show `icd_top5`, the margin and the category step.
+
+Say on camera: these rows come from the training data and are shown only to illustrate the mechanics; the
+model has seen them, so they are not evidence of accuracy (the out-of-fold numbers are).
 
 ## 2:00-2:30 Error analysis and honest ceiling
 Show the failure-mode table in `reports/validation.md` and say:

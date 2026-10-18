@@ -15,7 +15,10 @@
 - [x] S1 `.env.example` lists every variable the code reads (TERMMAP_USE_GPU, TERMMAP_THREADS; HF_TOKEN/HF_HOME optional).
 - [x] S1 requirements pinned (Python 3.11.15); added missing `simple-icd-10-cm==1.5.0`. Clean-venv install: not tested.
 - [x] S2 15:40 **v1 predict crashed on the full input** (KeyError in the coupling debug column: the ICD hierarchy pick can sit outside the primed top-5; latent since the first commit, never hit by the fixtures). Fixed in `CodeEmbeddings.cosine` (embeds missing codes on demand; cache only, codes unchanged) + regression test. Rerun started 15:42.
-- [ ] S3 determinism (2 runs, hashes), format checks, latency
+- [x] S3 16:06 run 1 on the full input (7,522 rows): independent check OK (order, columns, no blanks, all codes in the xlsx dictionaries). Wall 13:47 (load 22.7 s, predict 798.8 s = 106 ms/term batched, RTX 3050, peak RAM 8.2 GB). SHA-256 c2fb0805be38acece89ba25b19bb81b3b67d31084dabaaaf9483d6760d95f198.
+- [ ] S3 run 2 (determinism hash) after the Track V jobs (RAM allows one heavy job at a time)
+- [x] S6 PDF: 3 pages, rendered and inspected (layout OK); coverage curve added.
+- [x] S7 DEMO_SCRIPT.md drafted; demo_inputs.csv to pick from the run-1 debug output.
 - [ ] S4 validation.md, S5 README, S6 PDF, S7 demo script, S8 freeze/tag/push
 
 ## Track F (15:22-15:30) - decision: NOT adopted
