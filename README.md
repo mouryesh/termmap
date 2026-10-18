@@ -63,12 +63,12 @@ No keys are required; nothing is hard-coded.
 
 ## Trained weights (Hugging Face)
 
-Fine-tuned models: **https://huggingface.co/mouryesh/termmap-weights** (cross-encoders, LambdaRank rankers,
+Fine-tuned models: **https://huggingface.co/mouryesh1/termmap-weights** (cross-encoders, LambdaRank rankers,
 calibration). Data-derived artifacts (indexes with licensed SNOMED CT text, training memory, abbreviations,
 frequency stats) are not published; `termmap prepare` rebuilds them from the supplied files (~10 min on a GPU).
 
 ```bash
-.venv/bin/huggingface-cli download mouryesh/termmap-weights --local-dir artifacts/model
+.venv/bin/huggingface-cli download mouryesh1/termmap-weights --local-dir artifacts/model
 .venv/bin/termmap prepare        # needs data/hackathon_train.csv and the two dictionary xlsx files
 ```
 
