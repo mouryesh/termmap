@@ -59,6 +59,25 @@ system whose `artifacts/model/ce_<system>/` exists (run `python scripts/rebuild_
 `python scripts/rebuild_final.py ltr`); otherwise it uses the no-cross-encoder ranker (`ltr_<system>_noce.joblib`,
 own temperature and threshold in `noce.json`).
 
+## Model weights (Hugging Face)
+
+| what | where |
+|---|---|
+| trained TermMap artifacts: LambdaRank boosters (`ltr_*_noce.joblib`), calibration (`noce.json`, `hierarchy.json`, `coupling.json`), training memory, abbreviation table, dictionary indexes (char TF-IDF, BM25, SapBERT embeddings + encoder copy) | **https://huggingface.co/mouryesh/termmap-weights** (`model/`, `index/`) |
+| SapBERT dense encoder (pre-trained, used frozen) | https://huggingface.co/cambridgeltl/SapBERT-from-PubMedBERT-fulltext (rev `090663c`) |
+| MedCPT cross-encoder (pre-trained base; fine-tuned only in v1, not in this build) | https://huggingface.co/ncbi/MedCPT-Cross-Encoder (rev `71caf65`) |
+
+Pull everything for evaluation, then predict:
+
+```bash
+hf auth login          # only if the weights repo is private; use your own token, never commit it
+python scripts/hf_weights.py download
+termmap predict --input eval.csv --output predictions.csv
+```
+
+No fine-tuned cross-encoder weights exist for this build (see "Why no cross-encoder"). No API keys are in this
+repository: `.env.example` lists variables only; Hugging Face tokens come from `hf auth login` or `HF_TOKEN`.
+
 ## Models, data, licences
 
 | item | version | licence |
