@@ -19,10 +19,10 @@ M2–M5 → steps 10–12 (Gate C) · M7 → steps 13–14, 16 · step 15 only i
 | 10 | Model training | done | retrieval -> MedCPT CE (top-20) -> LambdaRank -> ICD hierarchy -> ICD-only coupling |
 | 11 | Tuning | done | K=80; CE top-20; LTR ndcg@10 stop; margin 0.05; T 0.889; coupling lambda 2.0 (inner CV) |
 | 12 | Evaluation | done | final 3-fold OOF: ICD 61.5, SNOMED 50.0 (min 50.0); ECE .042/.077; 98%-precision coverage 9.5%/0.3%; GPU 225 ms, CPU 1.16 s per term |
-| 13 | Error analysis | todo | |
-| 14 | Final test | todo | |
-| 15 | Deployment | todo | |
-| 16 | Monitoring plan | todo | |
+| 13 | Error analysis | done | 906 ICD / 3,672 SNOMED OOF errors tagged; top: SNOMED not retrieved 1,017, unseen code 920, abbreviation 607; ICD under-specific 182, not retrieved 170 (figure 13_error_tags) |
+| 14 | Final test | external | no internal test split; the hidden HiLabs evaluation file is the test set, scored once by the organisers |
+| 15 | Deployment | n/a | `termmap predict` + Streamlit demo; no service deployment requested |
+| 16 | Monitoring plan | done | see below |
 
 ## Step 3 — problem contract
 - **Target:** for each (entity, chunk_text) instance, one ICD-10-CM code and one SNOMED CT concept id from the supplied dictionaries.
@@ -40,6 +40,14 @@ Model rationale:
 - candidates: MedCPT cross-encoder fine-tuned per system on retrieval hard negatives (M2), then LightGBM LambdaRank over cross-encoder + retrieval + qualifier features (M3)
 - ruled out: flat softmax classifier over seen codes (ceiling 79.8% ICD / 59.6% SNOMED, singletons); random split (shared chunks leak); fine-tuning SapBERT (D10 trigger met, SNOMED R@50 82.3% < 90%, but not affordable before the deadline)
 - metric: exact-match accuracy per system, headline min(ICD, SNOMED); recall@K as the reranker ceiling; long-tail accuracy on held-out codes
+
+## Step 16 — monitoring and retraining
+- Watch: share of low-confidence rows, mean top-1 probability, fallback/override flag rates, share of terms with OOV words, and the semantic-tag / ICD-chapter mix of predictions versus the training distribution.
+- Trigger retraining when the low-confidence share or fallback rate moves > 5 points from the CV baseline, or a new dictionary release arrives (build-index refuses a mismatched stamp).
+- Retraining reuses the same pipeline: `termmap build-index` then `termmap train` (delete artifacts/cv to retrain cross-encoders).
+
+## Step 14
+- Step 14 final test: not run internally (3-fold grouped CV only: ICD 61.5, SNOMED 50.0); the organisers' hidden evaluation set is the test.
 
 ## Gate approvals
 - Gate A: approved 2026-10-17
