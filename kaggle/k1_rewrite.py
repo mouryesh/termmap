@@ -8,6 +8,8 @@ import subprocess
 import sys
 import zipfile
 
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "transformers==4.51.3", "accelerate==1.6.0"], check=True)
 import pandas as pd  # noqa: E402
 
@@ -37,7 +39,7 @@ print(f"pairs {len(pairs)}, already done {len(done)}, model {MODEL}")
 todo = pairs.merge(done[["term", "ctx_hash"]], how="left", indicator=True)
 todo = todo[todo["_merge"] == "left_only"].drop(columns="_merge").reset_index(drop=True)
 rw = Rewriter()
-BS, CHUNK = 32, 32 * 20
+BS, CHUNK = 16, 16 * 40  # batch 32 ran out of memory on a T4 (fp16 8B model)
 for s in range(0, len(todo), CHUNK):
     part = todo.iloc[s:s + CHUNK]
     llm = rw(list(zip(part["term"], part["ctx"])), batch_size=BS)

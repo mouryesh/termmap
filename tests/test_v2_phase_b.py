@@ -47,6 +47,19 @@ def test_couple_and_coupled_icd_keep_independent_choice_unless_moved():
     assert coupled_icd([], "X", sct, 8.0, cooc, None) == ("X", False)
 
 
+def test_code_embeddings_embed_unprimed_codes_on_demand():
+    from termmap.coupling import CodeEmbeddings
+
+    class Enc:
+        def encode(self, texts):
+            return np.array([[1.0, 0.0] if "heart" in t else [0.0, 1.0] for t in texts])
+
+    metas = {"ICD10CM": pd.DataFrame({"title": ["Heart failure"]}, index=["I50.9"]),
+             "SNOMEDCT_US": pd.DataFrame({"title": ["Heart failure (disorder)"]}, index=["84114007"])}
+    emb = CodeEmbeddings(Enc(), metas)
+    assert emb.cosine("I50.9", "84114007") == 1.0      # was a KeyError when not primed first
+
+
 # ---------------------------------------------------------------- confidence
 def test_threshold_curve_and_ece():
     conf = np.array([0.95, 0.9, 0.8, 0.6, 0.3])

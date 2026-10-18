@@ -23,7 +23,7 @@ from termmap.retrieval.fusion import Ranking, best_rank_merge, rrf
 from termmap.retrieval.memory import MemoryIndex
 
 log = logging.getLogger(__name__)
-CHANNELS = ("bm25", "char", "dense", "memory")
+CHANNELS = ("bm25", "char", "dense", "dense2", "memory")
 
 
 def description_table(d: Dictionary, extra: pd.DataFrame | None = None) -> pd.DataFrame:
@@ -58,6 +58,8 @@ def _stamp(cfg: dict) -> dict:
           "dense_model": cfg["retrieval"]["dense_model"]}
     if cfg["retrieval"].get("dense_max_len", 32) != 32:  # non-default only, so v1 stamps stay valid
         st["dense_max_len"] = cfg["retrieval"]["dense_max_len"]
+    if "dense2" in cfg["retrieval"].get("channels", ()):
+        st["dense2_model"] = cfg["retrieval"]["dense2_model"]
     if cfg.get("dictionaries", {}).get("icd_synonyms"):
         st["icd_synonyms"] = list(cfg["dictionaries"]["icd_synonyms"])
         st["icd_index_xml"] = file_hash(cfg["paths"]["icd_index_xml"])
@@ -86,6 +88,10 @@ def build_index(cfg: dict, force: bool = False) -> None:
     _writable(model_dir)
     enc = Encoder(cfg["retrieval"]["dense_model"], max_len=cfg["retrieval"].get("dense_max_len", 32))
     enc.save(model_dir)
+    enc2 = None
+    if "dense2" in cfg["retrieval"].get("channels", ()):  # item C4: MedCPT Query Encoder on both sides
+        enc2 = Encoder(cfg["retrieval"]["dense2_model"], max_len=cfg["retrieval"].get("dense_max_len", 32))
+        enc2.save(_writable(out / "dense2_model"))
     vocab: Counter = Counter()
     info = {}
     for sysname, d in dicts.items():
@@ -104,6 +110,9 @@ def build_index(cfg: dict, force: bool = False) -> None:
         joblib.dump(BM25Index(texts, codes), _writable(out / f"{sysname}_bm25.joblib"))
         emb = enc.encode([encoder_text(x) for x in texts], batch_size=512)
         np.save(_writable(out / f"{sysname}_dense.npy"), emb.astype(np.float16))
+        if enc2 is not None:
+            np.save(_writable(out / f"{sysname}_dense2.npy"),
+                    enc2.encode([encoder_text(x) for x in texts], batch_size=512).astype(np.float16))
         info[sysname] = {"texts": len(texts), "codes": len(set(codes)), "seconds": round(time.time() - t0, 1)}
         log.info("%s index: %s", sysname, info[sysname])
     _writable(out / "vocab.json").write_text(json.dumps(dict(sorted(vocab.items()))))
@@ -119,6 +128,7 @@ class SystemIndex:
     dense: DenseIndex
     meta: pd.DataFrame
     codes: set[str]
+    dense2: DenseIndex | None = None
     children: dict[str, list[str]] = field(default_factory=dict)  # ICD: parent prefix -> codes
 
 
@@ -137,6 +147,9 @@ class Indexes:
         else:
             log.info("dictionary files not present; using the stamped index %s", manifest["stamp"])
         self.encoder = Encoder(str(out / "sapbert"), device=device, max_len=cfg["retrieval"].get("dense_max_len", 32))
+        chans = cfg["retrieval"].get("channels", CHANNELS)
+        self.encoder2 = Encoder(str(out / "dense2_model"), device=device, max_len=cfg["retrieval"].get("dense_max_len", 32)) \
+            if "dense2" in chans else None
         self.spell = SpellCorrector(json.loads((out / "vocab.json").read_text()))
         self.sys: dict[str, SystemIndex] = {}
         use_bm25 = "bm25" in cfg["retrieval"].get("channels", CHANNELS)
@@ -147,6 +160,8 @@ class Indexes:
             si = SystemIndex(s, table, joblib.load(out / f"{s}_char.joblib"), joblib.load(out / f"{s}_bm25.joblib") if use_bm25 else None,
                              DenseIndex(emb, table["code"].tolist()), meta, set(meta.index))
             del emb
+            if self.encoder2 is not None:
+                si.dense2 = DenseIndex(np.load(out / f"{s}_dense2.npy"), table["code"].tolist())
             if s == ICD:
                 for c in sorted(si.codes):
                     si.children.setdefault(_parent(c), []).append(c)
@@ -196,14 +211,16 @@ class Retriever:
         self.weights = dict(cfg["retrieval"].get("channel_weights", {}))
         self._dict_cache: dict[tuple[str, str], dict[str, Ranking]] = {}
         self._emb_cache: dict[str, np.ndarray] = {}
+        self._emb2_cache: dict[str, np.ndarray] = {}
 
-    def embed(self, strings: list[str]) -> np.ndarray:
-        """SapBERT embeddings of query strings (first clause for very long strings), cached."""
-        new = sorted({s for s in strings if s not in self._emb_cache})
+    def embed(self, strings: list[str], second: bool = False) -> np.ndarray:
+        """SapBERT (or, with second=True, dense2) embeddings of query strings (first clause for very
+        long strings), cached."""
+        cache, enc = (self._emb2_cache, self.idx.encoder2) if second else (self._emb_cache, self.idx.encoder)
+        new = sorted({s for s in strings if s not in cache})
         if new:
-            E = self.idx.encoder.encode([encoder_text(s, self.max_words) for s in new])
-            self._emb_cache.update(zip(new, E))
-        return np.stack([self._emb_cache[s] for s in strings]) if strings else np.zeros((0, 768), np.float32)
+            cache.update(zip(new, enc.encode([encoder_text(s, self.max_words) for s in new])))
+        return np.stack([cache[s] for s in strings]) if strings else np.zeros((0, 768), np.float32)
 
     def prime(self, system: str, strings: list[str]) -> None:
         """Run the three dictionary channels for all uncached query strings in one batch."""
@@ -215,8 +232,9 @@ class Retriever:
         b = si.bm25.search(new) if si.bm25 is not None else [[] for _ in new]
         c = si.char.search(new)
         d = si.dense.search(self.embed(new))
-        for s, rb, rc, rd in zip(new, b, c, d):
-            self._dict_cache[(system, s)] = {"bm25": rb, "char": rc, "dense": rd}
+        d2 = si.dense2.search(self.embed(new, second=True)) if si.dense2 is not None else [[] for _ in new]
+        for s, rb, rc, rd, rd2 in zip(new, b, c, d, d2):
+            self._dict_cache[(system, s)] = {"bm25": rb, "char": rc, "dense": rd, "dense2": rd2}
         log.info("%s: dictionary channels for %d strings in %.1fs", system, len(new), time.time() - t0)
 
     def channel_rankings(self, system: str, variants: list[dict[str, str]],

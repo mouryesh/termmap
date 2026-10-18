@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from collections import Counter
 from pathlib import Path
 
@@ -31,7 +32,33 @@ def _val_split(rows: pd.DataFrame, frac: float, seed: int) -> tuple[pd.DataFrame
     return rows[~m], rows[m]
 
 
+def reuse_scores(cfg: dict, src: Path, systems: tuple[str, ...] = (ICD, SNOMED)) -> dict:
+    """Join another workspace's out-of-fold CE scores onto this workspace's pools by (row, code) and copy
+    its final CE models. Candidates that workspace never scored keep NaN (feature ce_missing = 1), so the
+    scores stay out-of-fold. Requires identical training rows and folds."""
+    art = Path(cfg["paths"]["artifacts"])
+    cv_dir, model_dir = art / "cv", art / "model"
+    rows = pd.read_parquet(cv_dir / "rows.parquet")
+    if not rows.equals(pd.read_parquet(src / "cv" / "rows.parquet")):
+        raise RuntimeError(f"training rows differ from {src}: out-of-fold CE scores cannot be reused")
+    summary: dict = {}
+    for s in systems:
+        cands = pd.read_parquet(cv_dir / f"candidates_{s}.parquet")
+        old = pd.read_parquet(src / "cv" / f"candidates_ce_{s}.parquet", columns=["row", "code", "ce_ctx", "ce_noctx"])
+        merged = cands.merge(old, on=["row", "code"], how="left")
+        merged.to_parquet(cv_dir / f"candidates_ce_{s}.parquet", index=False)
+        shutil.copytree(src / "model" / f"ce_{s}", model_dir / f"ce_{s}", dirs_exist_ok=True)
+        n = len(rows[rows.coding_system == s])
+        summary[s] = {"rows": n, "reused_from": str(src), "scored": int(merged["ce_ctx"].notna().sum()),
+                      "candidates": len(merged), "ce_top1_with_context": round(100 * top1_accuracy(merged, "ce_ctx", n), 1)}
+        log.info("%s CE scores reused: %s", s, summary[s])
+    (cv_dir / "ce_summary.json").write_text(json.dumps(summary, indent=1))
+    return summary
+
+
 def run(cfg: dict, systems: tuple[str, ...] = (ICD, SNOMED), final: bool = True) -> dict:
+    if cfg["rerank"].get("reuse_scores_from"):  # v2 cut-down build: no CE retraining (see configs/v2.yaml)
+        return reuse_scores(cfg, Path(cfg["rerank"]["reuse_scores_from"]), systems)
     art = Path(cfg["paths"]["artifacts"])
     cv_dir, model_dir = art / "cv", art / "model"
     rows = pd.read_parquet(cv_dir / "rows.parquet")

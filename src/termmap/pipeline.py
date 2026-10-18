@@ -14,7 +14,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from termmap.build_dataset import build_rows, candidate_frame, ce_scope
+from termmap.build_dataset import build_rows, candidate_frame, ce_scope, extra_rank_channels
 from termmap.coupling import CodeEmbeddings, CooccurrenceTable, coupled_icd
 from termmap.hierarchy import choose_argmax, choose_icd, group_softmax
 from termmap.io import ICD, SNOMED, SYSTEMS, load_inference_input
@@ -102,7 +102,7 @@ class Predictor:
         from termmap.rerank.cross_encoder import score_candidates
 
         rc = self.cfg["rerank"]
-        cf = candidate_frame(s, rows.index.tolist(), [None] * len(rows), cands, *ce_scope(rc, s))
+        cf = candidate_frame(s, rows.index.tolist(), [None] * len(rows), cands, *ce_scope(rc, s), extra_rank_channels(self.cfg))
         if cf.empty:
             return cf
         cf["ce_ctx"] = score_candidates(self.ce[s], rows, cf, self.ctext[s], True, rc["context_chars"])

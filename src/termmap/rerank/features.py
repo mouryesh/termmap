@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from termmap.io import ICD, SNOMED
-from termmap.normalize import tokens
+from termmap.normalize import level1, strip_semantic_tag, tokens
 
 # ---------------------------------------------------------------- qualifier lexicon
 _QUAL_WORDS = {
@@ -116,8 +116,9 @@ def qualifier_features(term_q: set, code_q: set, classes: tuple[str, ...] = QUAL
 class FeatureBuilder:
     """Builds the LambdaRank feature table for one system."""
 
-    def __init__(self, system: str, table: pd.DataFrame, meta: pd.DataFrame, ctext, qualifier_version: int = 1):
-        self.system, self.meta, self.ctext = system, meta, ctext
+    def __init__(self, system: str, table: pd.DataFrame, meta: pd.DataFrame, ctext, qualifier_version: int = 1,
+                 groups: tuple[str, ...] = ()):
+        self.system, self.meta, self.ctext, self.groups = system, meta, ctext, tuple(groups)
         self.qfun = qualifiers_v2 if qualifier_version == 2 else qualifiers
         self.qclasses = QUAL_CLASSES_V2 if qualifier_version == 2 else QUAL_CLASSES
         self.knowledge = {}  # item C1: source -> {text: codes}, exact_index / exact_inclusion features
@@ -126,6 +127,7 @@ class FeatureBuilder:
                 self.knowledge[src] = g.groupby("text")["code"].apply(frozenset).to_dict()
             table = table[table["source"] == "dict"]
         self.text_to_codes = table.groupby("text")["code"].apply(frozenset).to_dict()
+        self.desc = table[["code", "text"]]
         unspec = table[table["text"].str.contains(r"\bunspecified\b|\bnos\b", regex=True)]["code"]
         self.unspecified = set(unspec)
         if system == SNOMED:
@@ -150,7 +152,8 @@ class FeatureBuilder:
         term_q = {rid: self.qfun(t) for rid, t in term.items()}
         f = pd.DataFrame(index=cands.index)
         f["row"], f["code"] = cands["row"].values, cands["code"].values
-        for col in ("fused_rank", "rank_char", "rank_dense", "rank_memory"):
+        for col in ["fused_rank", "rank_char", "rank_dense", "rank_memory"] + \
+                [c for c in ("rank_bm25", "rank_dense2") if c in cands]:
             f[col] = np.log1p(cands[col].astype(float).values)
         f["rrf"] = cands["rrf"].values
         f["expanded"], f["embedded"] = cands["expanded"].values, cands["embedded"].values
@@ -178,8 +181,73 @@ class FeatureBuilder:
             f["semantic_tag"] = [self.tag_id.get(t, -1) for t in m["semantic_tag"].fillna("unknown")]
         q = [qualifier_features(term_q[r], self._code_q(c), self.qclasses) for r, c in zip(cands["row"], cands["code"])]
         f = pd.concat([f, pd.DataFrame(q, index=cands.index)], axis=1)
+        if self.groups:
+            f = pd.concat([f, self._groups(cands, rows, f)], axis=1)
         f["label"] = cands["gold"].values
         return f
+
+    # ------------------------------------------------------------ Track F feature groups (vectorised)
+    def _title(self, codes: pd.Series) -> pd.Series:
+        t = self.meta["title"].reindex(codes.unique()).fillna("").map(level1)
+        if self.system == SNOMED:
+            t = t.map(strip_semantic_tag)
+        return codes.map(t)
+
+    def _groups(self, cands: pd.DataFrame, rows: pd.DataFrame, f: pd.DataFrame) -> pd.DataFrame:
+        """string (F2), term (F3), structure (F5) and pool (F4) features; all computable at predict time."""
+        from rapidfuzz import fuzz
+        from rapidfuzz.process import cpdist
+        g = pd.DataFrame(index=cands.index)
+        term = cands["row"].map(rows["term_norm"]).fillna("").values
+        title = self._title(cands["code"]).values
+        if "string" in self.groups:
+            for name, sc in (("ratio", fuzz.ratio), ("tset", fuzz.token_set_ratio), ("partial", fuzz.partial_ratio)):
+                g[f"s_title_{name}"] = cpdist(term, title, scorer=sc, workers=-1)
+            pairs = cands[["code"]].assign(i=np.arange(len(cands)), term=term).merge(self.desc, on="code")
+            best = cpdist(pairs["term"].values, pairs["text"].values, scorer=fuzz.token_set_ratio, workers=-1)
+            g["s_desc_tset_max"] = pd.Series(best).groupby(pairs["i"].values).max().reindex(range(len(cands))).fillna(0).values
+            tt = [set(tokens(x)) for x in term]
+            ct = [set(tokens(x)) for x in title]
+            g["s_tok_recall"] = [len(a & b) / len(a) if a else 0.0 for a, b in zip(tt, ct)]
+            g["s_tok_precision"] = [len(a & b) / len(b) if b else 0.0 for a, b in zip(tt, ct)]
+            g["s_term_in_title"] = [int(bool(a) and a in b) for a, b in zip(term, title)]
+            g["s_title_in_term"] = [int(bool(b) and b in a) for a, b in zip(term, title)]
+            g["s_len_diff"] = [len(b) - len(a) for a, b in zip(tt, ct)]
+        if "term" in self.groups:
+            tr = rows.reindex(cands["row"].unique())
+            tok = tr["term_norm"].fillna("").map(tokens)
+            chunk = tr["chunk_text"].fillna("").map(level1)
+            tf = pd.DataFrame({"t_tokens": tok.map(len), "t_chars": tr["term_norm"].fillna("").str.len(),
+                               "t_digit": tr["term_norm"].fillna("").str.contains(r"\d").astype(int),
+                               "t_short": (tr["term_norm"].fillna("").str.len() <= 4).astype(int),
+                               "t_vowelless": tr["term_norm"].fillna("").str.fullmatch(r"[^aeiou\s]+").fillna(False).astype(int),
+                               "t_chunk_chars": chunk.str.len(),
+                               "t_table": tr["chunk_text"].fillna("").str.contains("header_|<br>").astype(int),
+                               "t_in_chunk": [int(bool(t) and t in c) for t, c in zip(tr["term_norm"].fillna(""), chunk)],
+                               "t_n_qual": tr["term_norm"].fillna("").map(lambda x: len({c for c, _ in self.qfun(x)}))},
+                              index=tr.index)
+            g = g.join(tf.reindex(cands["row"]).set_index(cands.index))
+        if "structure" in self.groups:
+            n_desc = self.desc.groupby("code").size()
+            g["c_n_desc"] = cands["code"].map(n_desc).fillna(0).values
+            g["c_title_len"] = [len(x) for x in title]
+            for flag, rx in (("other", r"\bother\b"), ("nec", r"\bnec\b|not elsewhere classified"), ("nos", r"\bnos\b")):
+                g[f"c_{flag}"] = pd.Series(title).str.contains(rx).astype(int).values
+            if self.system == ICD:
+                g["c_7th"] = (cands["code"].str.replace(".", "", regex=False).str.len() == 7).astype(int).values
+            nq = cands["row"].map(rows["term_norm"].fillna("").map(lambda x: len({c for c, _ in self.qfun(x)})))
+            g["c_unspec_x_nqual"] = f["unspecified"].values * nq.values
+            g["c_extra_x_digit"] = f["code_extra"].values * cands["row"].map(rows["term_norm"].fillna("").str.contains(r"\d")).astype(int).values
+        if "pool" in self.groups and "ce" in f:
+            ce = pd.Series(np.where(f["ce_missing"].values == 1, -np.inf, f["ce"].values), index=cands.index)
+            e = np.exp(ce - ce.groupby(cands["row"]).transform("max"))
+            share = e / e.groupby(cands["row"]).transform("sum")
+            g["p_ce_share"] = share.values
+            key = cands["code"].str[:3] if self.system == ICD else \
+                cands["code"].map(self.meta["semantic_tag"]).fillna("unknown")
+            g["p_group_mass"] = share.groupby([cands["row"], key.values]).transform("sum").values
+            g["p_group_size"] = cands.groupby([cands["row"], key.values])["code"].transform("size").values
+        return g
 
     @property
     def categorical(self) -> list[str]:

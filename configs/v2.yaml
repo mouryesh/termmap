@@ -16,7 +16,9 @@ retrieval:
   - bm25
   - char
   - dense
+  - dense2
   - memory
+  dense2_model: ncbi/MedCPT-Query-Encoder  # C4; Query Encoder for both sides: model card, short texts
   rrf_k: 60
   top_k: 80
   sibling_expand_top: 20
@@ -36,6 +38,9 @@ retrieval:
       memory: 1.5
   dense_max_len: 64
 rerank:
+  # Cut-down v2 (user decision 2026-10-18, finish by 17:00): reuse v1 out-of-fold CE scores and final
+  # CE models instead of retraining (C6 deferred). New candidates get ce_missing = 1.
+  reuse_scores_from: artifacts
   cross_encoder: ncbi/MedCPT-Cross-Encoder
   n_negatives: 15
   lr: 2.0e-05
@@ -43,8 +48,8 @@ rerank:
   max_len: 128
   epochs: 5
   ce_top:
-    ICD10CM: 30
-    SNOMEDCT_US: 40
+    ICD10CM: 20  # = v1 scope while v1 CE scores are reused (A3 values 30/40 need C6)
+    SNOMEDCT_US: 20
   val_frac: 0.1
   context_chars: 100
   context_dropout: 0.5
@@ -53,7 +58,7 @@ rerank:
   final_epochs: median
   negatives: ltr
   negatives_ltr_oof_dir: artifacts/cv
-  ce_siblings: true
+  ce_siblings: false  # A4 needs C6 (retrained CE); off while v1 scores are reused
 predict:
   device: cuda
 hierarchy:

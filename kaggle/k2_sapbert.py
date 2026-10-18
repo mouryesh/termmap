@@ -10,7 +10,7 @@ import subprocess
 import sys
 import zipfile
 
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "transformers==4.46.3", "faiss-cpu==1.9.0"], check=True)
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "transformers==4.46.3", "faiss-cpu==1.12.0"], check=True)
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 

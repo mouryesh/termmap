@@ -5,6 +5,14 @@ code and one SNOMED CT concept**, both drawn from the supplied dictionaries. Bui
 
 ![architecture](docs/architecture.png)
 
+## How it works
+1. **Normalize** the term (case, punctuation, OCR/spelling variant, abbreviations mined from training rows, embedded codes).
+2. **Retrieve** up to 80 candidates per system: char TF-IDF + SapBERT dense + training memory, fused with RRF; ICD siblings added.
+3. **Cross-encoder** (fine-tuned MedCPT) scores the top-20 candidates against the term plus its chart context.
+4. **LightGBM LambdaRank** re-ranks the pool with cross-encoder, retrieval, frequency, metadata and qualifier features.
+5. **ICD hierarchy step** (category first, then code) and **ICD-only coupling** with the SNOMED choice; calibrated confidence.
+6. **Output guard**: every code is checked against the supplied dictionary; deterministic fallbacks; never an empty cell.
+
 ## Results (3-fold grouped cross-validation, entity + chunk_text)
 
 | stage | ICD-10-CM | SNOMED CT | min (headline) |
@@ -16,6 +24,15 @@ code and one SNOMED CT concept**, both drawn from the supplied dictionaries. Bui
 | + ICD category step + ICD-only coupling (**final**) | **61.5** | **50.0** | **50.0** |
 | long tail: codes never seen in the training folds | 39.3 | 38.7 | |
 | ceiling: gold code inside the candidate pool | 92.6 | 86.1 | |
+
+Selective accuracy (most confident share of rows answered, out-of-fold): 25% → ICD 89.6 / SNOMED 85.3;
+50% → 80.6 / 71.9; 75% → 70.7 / 60.0; 100% → 60.9 / 50.0 (ICD before coupling). The rest is flagged
+`low_confidence` in `predictions_debug.csv` for human review.
+
+Honest ceilings (measured on the training data): identical normalized terms get the same SNOMED code in only
+76.4% of row pairs; in 37.4% of SNOMED and 26.9% of ICD in-pool ranking errors the gold and predicted names are
+near twins (char 3-4-gram cosine ≥ 0.5). The project brief cites about 85% for the best published systems on a
+comparable task, with inter-annotator agreement about 74% (not re-verified here).
 
 The brief's 95% bar is **not** reached; the candidate-pool ceiling (86% SNOMED) shows retrieval recall is
 the binding limit. Full methodology, ablations, error analysis and caveats: [reports/validation.md](reports/validation.md).
@@ -115,6 +132,29 @@ cardiac context), an OCR-mangled term, specificity calls, and a no-context term.
 | matplotlib 3.9.3 | | PSF-based | figures |
 
 No LLM is used (0 calls per 1,000 terms).
+
+## Data handling
+- The training file and dictionaries are proprietary. They stay in `data/` (git-ignored), with all derived
+  artifacts in `artifacts*/` (git-ignored). The repository is private; `git ls-files` contains no training text,
+  chunk text or dictionary file. Reports that quote training terms (`reports/validation.md`, the PDF) are not committed.
+- **Kaggle disclosure:** GPU training used **private** Kaggle datasets and **private** notebooks (account owner's
+  quota): the v1 SNOMED cross-encoder (deleted after training), and for the v2 experiments a dataset of normalized
+  term + context-window pairs (K1) and of training rows plus dictionary tables (K2). All are private and are deleted
+  after the deadline. Nothing was sent to any third-party or LLM API; the shipped pipeline uses no LLM.
+- Public resources downloaded: model weights from Hugging Face; the CDC ICD-10-CM FY2026 Alphabetic Index (v2 experiment).
+
+## Limitations
+- Retrieval recall caps accuracy (gold in pool: 92.6% ICD, 86.1% SNOMED); codes never seen in training reach ~39%.
+- Coder conventions and near-twin concepts dominate the remaining ranking errors; the labels themselves are
+  inconsistent for repeated terms (76.4% SNOMED pair agreement).
+- The cross-encoders were fine-tuned for 2 epochs (time budget); longer listwise training is the main untried lever.
+
+## Experiments not in the shipped model (measured, documented)
+- **Ranker feature rebuild (Track F):** string, term, structure and pool feature groups plus an inner-split objective
+  search: min(ICD, SNOMED) +0.33, below the +1.0 adoption bar. See `reports/ranker_features.md`.
+- **v2 (`configs/v2.yaml`, `artifacts_v2/`):** audit fixes (`AUDIT.md`), ICD knowledge synonyms from simple-icd-10-cm
+  1.5.0 (MIT) and the CDC FY2026 index (public domain): out-of-fold ICD recall@10/30/80 75.8/86.4/91.0 → 80.3/89.3/92.8;
+  MedCPT Query Encoder channel; Qwen3-8B rewrite and SapBERT fine-tune notebooks (not run to completion).
 
 ## Repository layout
 ```

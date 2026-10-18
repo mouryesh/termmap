@@ -45,6 +45,7 @@ class CodeEmbeddings:
             self._cache.update(zip(new, E))
 
     def cosine(self, icd: str, sct: str) -> float:
+        self.prime([("ICD10CM", icd), ("SNOMEDCT_US", sct)])  # e.g. a hierarchy pick outside the primed top-N
         return float(self._cache[("ICD10CM", icd)] @ self._cache[("SNOMEDCT_US", sct)])
 
 

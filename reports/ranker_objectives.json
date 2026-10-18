@@ -1,0 +1,60 @@
+{
+ "ICD10CM": {
+  "grid": {
+   "v1": {
+    "inner_top1": 65.58,
+    "oof_top1": 60.59
+   },
+   "lr_at1_t10": {
+    "inner_top1": 65.34,
+    "oof_top1": 58.68
+   },
+   "xendcg": {
+    "inner_top1": 64.9,
+    "oof_top1": 60.07
+   },
+   "leaves15": {
+    "inner_top1": 64.68,
+    "oof_top1": 60.37
+   },
+   "leaves7_mcs50_l2": {
+    "inner_top1": 64.48,
+    "oof_top1": 58.85
+   },
+   "ff05": {
+    "inner_top1": 66.01,
+    "oof_top1": 60.63
+   }
+  },
+  "chosen_on_inner": "ff05"
+ },
+ "SNOMEDCT_US": {
+  "grid": {
+   "v1": {
+    "inner_top1": 52.14,
+    "oof_top1": 50.26
+   },
+   "lr_at1_t10": {
+    "inner_top1": 52.48,
+    "oof_top1": 50.3
+   },
+   "xendcg": {
+    "inner_top1": 51.26,
+    "oof_top1": 49.74
+   },
+   "leaves15": {
+    "inner_top1": 51.32,
+    "oof_top1": 49.81
+   },
+   "leaves7_mcs50_l2": {
+    "inner_top1": 51.87,
+    "oof_top1": 49.54
+   },
+   "ff05": {
+    "inner_top1": 52.21,
+    "oof_top1": 50.3
+   }
+  },
+  "chosen_on_inner": "lr_at1_t10"
+ }
+}

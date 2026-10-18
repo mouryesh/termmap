@@ -304,7 +304,7 @@ def evaluate_m5(cfg: dict) -> dict:
 
 # ---------------------------------------------------------------- A9: weighted RRF channel weights
 WEIGHT_GRID = {"bm25": (0.0, 0.25, 0.5, 0.75, 1.0), "char": (0.5, 1.0), "dense": (1.0, 1.5, 2.0),
-               "memory": (1.0, 1.5, 2.0)}
+               "dense2": (0.0, 0.5, 1.0, 1.5), "memory": (1.0, 1.5, 2.0)}
 
 
 def tune_rrf_weights(cfg: dict, idx: Indexes | None = None, retr: Retriever | None = None) -> dict:
@@ -317,7 +317,7 @@ def tune_rrf_weights(cfg: dict, idx: Indexes | None = None, retr: Retriever | No
     idx = idx or Indexes(cfg)
     retr = retr or Retriever(idx, cfg)
     rows = pd.read_parquet(Path(cfg["paths"]["artifacts"]) / "cv" / "rows.parquet")
-    chans = ("bm25", "char", "dense", "memory")
+    chans = tuple(ch for ch in WEIGHT_GRID if ch in cfg["retrieval"]["channels"])
     per_sys: dict[str, list] = {s: [] for s in SYSTEMS}
     for f in sorted(rows["fold"].unique()):
         tr, te = rows[rows.fold != f], rows[rows.fold == f]
@@ -342,10 +342,14 @@ def tune_rrf_weights(cfg: dict, idx: Indexes | None = None, retr: Retriever | No
                 pos = fused.index(gold) + 1 if gold in fused else 10**6
                 hits += [pos <= 10, pos <= 30, pos <= 80]
             results.append((tuple(round(100 * h / len(data), 2) for h in hits), w))
-        best = max(results, key=lambda r: (r[0][2], r[0][1], -r[1][0]))
-        equal = next(r for r in results if r[1] == (1.0, 1.0, 1.0, 1.0))
-        nobm25 = next(r for r in results if r[1] == (0.0, 1.0, 1.0, 1.0))
-        out[s] = {"rows": len(data), "best_weights": dict(zip(chans, best[1])), "best_R@10/30/80": best[0],
+        key = lambda r: (r[0][2], r[0][1], -r[1][0])
+        best = max(results, key=key)
+        equal = next(r for r in results if set(r[1]) == {1.0})
+        nobm25 = next(r for r in results if r[1][0] == 0.0 and set(r[1][1:]) == {1.0})
+        if "dense2" in chans:  # the best setting without the dense2 channel, for the C4 gate
+            nod2 = max((r for r in results if dict(zip(chans, r[1]))["dense2"] == 0.0), key=key)
+            out.setdefault(s, {})["no_dense2"] = {"weights": dict(zip(chans, nod2[1])), "R@10/30/80": nod2[0]}
+        out[s] = {**out.get(s, {}), "rows": len(data), "best_weights": dict(zip(chans, best[1])), "best_R@10/30/80": best[0],
                   "equal_R@10/30/80": equal[0], "no_bm25_R@10/30/80": nobm25[0]}
         log.info("A9 %s: %s", s, out[s])
     return out

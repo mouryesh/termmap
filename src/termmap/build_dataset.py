@@ -48,8 +48,14 @@ def ce_scope(rc: dict, system: str) -> tuple[int, bool]:
     return int(top), bool(rc.get("ce_siblings", False)) and system == ICD
 
 
+def extra_rank_channels(cfg: dict) -> tuple[str, ...]:
+    """Channels beyond v1's char/dense/memory whose ranks become features (from the config, so training
+    and predict build the same columns)."""
+    return tuple(ch for ch in ("bm25", "dense2") if ch in cfg["retrieval"].get("channels", ()))
+
+
 def candidate_frame(system: str, row_ids: list[int], gold: list[str | None], cands: list, ce_top: int,
-                    ce_siblings: bool = False) -> pd.DataFrame:
+                    ce_siblings: bool = False, extra_ranks: tuple[str, ...] = ()) -> pd.DataFrame:
     """Flatten Stage 2 Candidates into one row per (training row, candidate code).
 
     in_ce marks what the cross-encoder scores: fused top-`ce_top` plus embedded codes, plus (with
@@ -66,6 +72,7 @@ def candidate_frame(system: str, row_ids: list[int], gold: list[str | None], can
                 "row": rid, "code": code, "gold": int(code == g),
                 "fused_rank": fr if fr is not None else 999, "rrf": rrf_score.get(code, 0.0),
                 "rank_char": r.get("char", 999), "rank_dense": r.get("dense", 999), "rank_memory": r.get("memory", 999),
+                **{f"rank_{ch}": r.get(ch, 999) for ch in extra_ranks},
                 "expanded": int(fr is None and code not in c.embedded), "embedded": int(code in c.embedded),
                 "in_ce": int((fr is not None and fr <= ce_top) or code in c.embedded
                              or (ce_siblings and fr is None)),
@@ -95,7 +102,8 @@ def oof_candidates(cfg: dict, df: pd.DataFrame, idx, retr) -> dict[str, pd.DataF
                 ei, es = embedded_codes(raw, idx.sys[ICD].codes, idx.sys[SNOMED].codes,
                                         cfg.get("normalize", {}).get("undotted_codes", False))
                 cands.append(retr.fuse(s, per, ei if s == ICD else es))
-            fr = candidate_frame(s, t.index.tolist(), t["code"].tolist(), cands, *ce_scope(cfg["rerank"], s))
+            fr = candidate_frame(s, t.index.tolist(), t["code"].tolist(), cands, *ce_scope(cfg["rerank"], s),
+                                 extra_rank_channels(cfg))
             fr["fold"] = int(f)
             out[s].append(fr)
         log.info("candidates fold %d done", f)
