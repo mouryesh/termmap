@@ -1,5 +1,5 @@
 # TermMap v2 configuration (Phase A fixes; Phase C upgrades). v1 stays in configs/default.yaml.
-# channel_weights: tuned on out-of-fold recall@80 (audit A9, artifacts_v2/cv/a9_rrf_weights.json)
+# channel_weights: tuned on out-of-fold recall@80 (A9 protocol; ICD re-tuned with C1 synonyms, artifacts_v2/cv/c1_retrieval_c1.json)
 seed: 42
 num_threads: 8
 paths:
@@ -8,6 +8,7 @@ paths:
   snomed_dict: data/SNOMEDCT_US_codes_and_descriptions.xlsx
   artifacts: artifacts_v2
   reports: reports/v2
+  icd_index_xml: data/external/cdc_icd10cm_2026/icd10cm-index-2026.xml
 cv:
   n_folds: 3
 retrieval:
@@ -24,8 +25,8 @@ retrieval:
   long_term_words: 32
   channel_weights:
     ICD10CM:
-      bm25: 0.0
-      char: 1.0
+      bm25: 0.25
+      char: 0.5
       dense: 1.5
       memory: 1.5
     SNOMEDCT_US:
@@ -73,6 +74,9 @@ ltr:
   - 10
 dictionaries:
   icd_title: official
+  icd_synonyms:  # C1: knowledge synonyms as extra ICD description rows (src/termmap/icd_knowledge.py)
+  - inclusion
+  - index
   snomed_tag: official
 features:
   qualifier_version: 2

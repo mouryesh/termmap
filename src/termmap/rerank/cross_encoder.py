@@ -40,14 +40,30 @@ def query_text(term_norm: str, ctx: str) -> str:
 
 
 class CandidateText:
-    """Cross-encoder text for a code: preferred term | up to 3 synonyms | ICD category title / SNOMED tag."""
+    """Cross-encoder text for a code: preferred term | up to 3 synonyms | ICD category title / SNOMED tag.
+
+    With knowledge synonyms in the table (column `source`, item C1) and a query term, the knowledge
+    synonym closest to the term (rapidfuzz token_set_ratio, ties by text) goes right after the
+    preferred term.
+    """
 
     def __init__(self, system: str, table: pd.DataFrame, meta: pd.DataFrame, n_syn: int = 3):
         self.system, self.meta, self.n_syn = system, meta, n_syn
-        self.texts = table.groupby("code", sort=False)["text"].apply(list).to_dict()
+        know = table["source"] != "dict" if "source" in table else pd.Series(False, index=table.index)
+        self.texts = table[~know].groupby("code", sort=False)["text"].apply(list).to_dict()
+        self.know = table[know].groupby("code", sort=False)["text"].apply(sorted).to_dict()
         self._cache: dict[str, str] = {}
 
-    def __call__(self, code: str) -> str:
+    def __call__(self, code: str, query: str | None = None) -> str:
+        base = self._base(code)
+        if query and code in self.know:
+            from rapidfuzz import fuzz
+            best = max(self.know[code], key=lambda t: fuzz.token_set_ratio(query, t))  # ties: first in sorted order
+            head, sep, tail = base.partition(" | ")
+            return f"{head} | {best}{sep}{tail}" if sep else f"{head} | {best}"
+        return base
+
+    def _base(self, code: str) -> str:
         if code in self._cache:
             return self._cache[code]
         m = self.meta.loc[code] if code in self.meta.index else None
@@ -246,7 +262,7 @@ def build_training_pairs(rows: pd.DataFrame, cands: pd.DataFrame, ctext: Candida
                     negs.append(c)
         for c in [gold] + negs[:n_neg]:
             A.append(q)
-            B.append(ctext(c))
+            B.append(ctext(c, r["term_norm"]))
             Y.append(1.0 if c == gold else 0.0)
             G.append(gid)
     out = (A, B, np.asarray(Y, dtype=np.float32))
@@ -262,7 +278,8 @@ def score_candidates(ce: CrossEncoder, rows: pd.DataFrame, cands: pd.DataFrame, 
         ctx = context_window(r["term_norm"], r["chunk_text"], ctx_chars) if with_context else ""
         q[rid] = query_text(r["term_norm"], ctx)
     a = [q[x] for x in cands.loc[sel, "row"]]
-    b = [ctext(c) for c in cands.loc[sel, "code"]]
+    terms = rows["term_norm"]
+    b = [ctext(c, terms[x]) for c, x in zip(cands.loc[sel, "code"], cands.loc[sel, "row"])]
     out = np.full(len(cands), np.nan, dtype=np.float32)
     out[cands.index.get_indexer(sel)] = ce.score(a, b)
     return out

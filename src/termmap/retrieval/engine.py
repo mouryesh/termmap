@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from termmap.dictionaries import Dictionary, file_hash, load_icd, load_snomed
+from termmap.icd_knowledge import knowledge_terms
 from termmap.io import ICD, SNOMED, SYSTEMS
 from termmap.normalize import SpellCorrector, encoder_text, level1, strip_semantic_tag, tokens
 from termmap.retrieval.bm25 import BM25Index
@@ -25,12 +26,22 @@ log = logging.getLogger(__name__)
 CHANNELS = ("bm25", "char", "dense", "memory")
 
 
-def description_table(d: Dictionary) -> pd.DataFrame:
-    """One row per (code, normalized description); SNOMED semantic tags stripped for matching."""
+def description_table(d: Dictionary, extra: pd.DataFrame | None = None) -> pd.DataFrame:
+    """One row per (code, normalized description); SNOMED semantic tags stripped for matching.
+
+    `extra` (code, description, source) adds knowledge synonyms; the table then gets a `source`
+    column ('dict' for supplied rows) and an extra row is dropped when the code already has that text.
+    """
     text = d.rows["description"].map(level1)
     if d.system == SNOMED:
         text = text.map(strip_semantic_tag)
     t = pd.DataFrame({"code": d.rows["code"].values, "text": text.values})
+    if extra is not None:
+        x = pd.DataFrame({"code": extra["code"].values, "text": extra["description"].map(level1).values,
+                          "source": extra["source"].values})
+        t = pd.concat([t.assign(source="dict"), x], ignore_index=True)
+        t = t[t["text"] != ""].drop_duplicates(["code", "text"]).sort_values(["code", "text"], kind="stable")
+        return t.reset_index(drop=True)
     t = t[t["text"] != ""].drop_duplicates().sort_values(["code", "text"], kind="stable")
     return t.reset_index(drop=True)
 
@@ -47,6 +58,9 @@ def _stamp(cfg: dict) -> dict:
           "dense_model": cfg["retrieval"]["dense_model"]}
     if cfg["retrieval"].get("dense_max_len", 32) != 32:  # non-default only, so v1 stamps stay valid
         st["dense_max_len"] = cfg["retrieval"]["dense_max_len"]
+    if cfg.get("dictionaries", {}).get("icd_synonyms"):
+        st["icd_synonyms"] = list(cfg["dictionaries"]["icd_synonyms"])
+        st["icd_index_xml"] = file_hash(cfg["paths"]["icd_index_xml"])
     return st
 
 
@@ -76,7 +90,11 @@ def build_index(cfg: dict, force: bool = False) -> None:
     info = {}
     for sysname, d in dicts.items():
         t0 = time.time()
-        table = description_table(d)
+        syn = cfg.get("dictionaries", {}).get("icd_synonyms") if sysname == ICD else None
+        extra = knowledge_terms(d.codes, syn, cfg["paths"].get("icd_index_xml")) if syn else None
+        table = description_table(d, extra)
+        if extra is not None:
+            log.info("%s knowledge synonyms: %s", sysname, table["source"].value_counts().to_dict())
         table.to_parquet(_writable(out / f"{sysname}_table.parquet"), index=False)
         d.meta.to_parquet(_writable(out / f"{sysname}_meta.parquet"))  # codes + metadata; predict reads only this
         texts, codes = table["text"].tolist(), table["code"].tolist()
@@ -111,6 +129,8 @@ class Indexes:
         out = Path(cfg["paths"]["artifacts"]) / "index"
         manifest = json.loads((out / "manifest.json").read_text())
         dict_files = [Path(cfg["paths"]["icd_dict"]), Path(cfg["paths"]["snomed_dict"])]
+        if cfg.get("dictionaries", {}).get("icd_synonyms"):
+            dict_files.append(Path(cfg["paths"]["icd_index_xml"]))
         if all(f.exists() for f in dict_files):
             if manifest["stamp"] != _stamp(cfg):
                 raise RuntimeError("dictionary files changed since the index was built: run `termmap build-index`")

@@ -120,6 +120,11 @@ class FeatureBuilder:
         self.system, self.meta, self.ctext = system, meta, ctext
         self.qfun = qualifiers_v2 if qualifier_version == 2 else qualifiers
         self.qclasses = QUAL_CLASSES_V2 if qualifier_version == 2 else QUAL_CLASSES
+        self.knowledge = {}  # item C1: source -> {text: codes}, exact_index / exact_inclusion features
+        if "source" in table:
+            for src, g in table[table["source"] != "dict"].groupby("source"):
+                self.knowledge[src] = g.groupby("text")["code"].apply(frozenset).to_dict()
+            table = table[table["source"] == "dict"]
         self.text_to_codes = table.groupby("text")["code"].apply(frozenset).to_dict()
         unspec = table[table["text"].str.contains(r"\bunspecified\b|\bnos\b", regex=True)]["code"]
         self.unspecified = set(unspec)
@@ -158,6 +163,8 @@ class FeatureBuilder:
             f["ce_gap"] = (ce - grp.transform("max")).fillna(-20.0).values
         t_of = cands["row"].map(term)
         f["exact_dict"] = [int(c in self.text_to_codes.get(t, ())) for t, c in zip(t_of, cands["code"])]
+        for src, t2c in sorted(self.knowledge.items()):
+            f[f"exact_{src}"] = [int(c in t2c.get(t, ())) for t, c in zip(t_of, cands["code"])]
         f["exact_memory"] = [int(c in mem.get(t, ())) for t, c in zip(t_of, cands["code"])]
         f["log_train_freq"] = [math.log1p(freq.get(c, 0)) for c in cands["code"]]
         f["seen_in_train"] = (f["log_train_freq"] > 0).astype(int)
