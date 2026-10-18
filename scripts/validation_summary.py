@@ -39,6 +39,9 @@ rep = sct[sct.term_norm.map(sct.groupby("term_norm").size()) >= 2]
 pairs = sum((c.value_counts() * (c.value_counts() - 1) / 2).sum() for _, c in rep.groupby("term_norm")["code"])
 tot = sum(n * (n - 1) / 2 for n in rep.groupby("term_norm").size())
 conf = m5["confidence"]
+json.dump({"snomed_pair_agreement": round(100 * pairs / tot, 1), "snomed_pair_rows": len(rep),
+           "near_twin_snomed": round(twin["SNOMEDCT_US"], 1), "near_twin_icd": round(twin["ICD10CM"], 1)},
+          open(f"{ART}/ceilings.json", "w"), indent=1)
 
 L = ["", "## Submission summary (v1 final model, 3-fold out-of-fold by chunk group, all rows) - 18 Oct 2026", "",
      "| | ICD-10-CM | SNOMED CT |", "|---|---|---|",

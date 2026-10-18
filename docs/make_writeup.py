@@ -17,6 +17,15 @@ CV = ROOT / "artifacts" / "cv"
 J = lambda p: json.loads((CV / p).read_text())
 ce, lt, hi, m5, ab, er = (J("ce_summary.json"), J("ltr_summary.json"), J("hierarchy_summary.json"),
                           J("m5_summary.json"), J("ablations_m7.json"), J("error_analysis.json"))
+ceil = J("ceilings.json")  # written by scripts/validation_summary.py
+rf = json.loads((ROOT / "reports" / "ranker_features.json").read_text())
+c1 = json.loads((ROOT / "artifacts_v2" / "cv" / "c1_retrieval_c1.json").read_text())
+c0 = json.loads((ROOT / "artifacts_v2" / "cv" / "c1_retrieval_no_c1.json").read_text())
+
+
+def acc_at(s, cov):
+    cur = m5["confidence"][s]["curve"]
+    return 100 * min(cur, key=lambda r: abs(r["coverage"] - cov))["accuracy"]
 I, S = "ICD10CM", "SNOMEDCT_US"
 final_icd = m5["icd_only_overall"]["icd_all_rows"]
 final_sct = lt[S]["entity+chunk"]["top1"]
@@ -71,11 +80,17 @@ rows = [["stage (3-fold out-of-fold top-1, %)", "ICD-10-CM", "SNOMED CT", "min"]
         ["ceiling: gold inside candidate pool", lt[I]["pool_ceiling"], lt[S]["pool_ceiling"], ""]]
 story += [P("2. Results", h1), table(rows, [8.2 * cm, 2.6 * cm, 2.6 * cm, 1.8 * cm]),
           P(f"ICD category accuracy {hi[I]['category_acc_hierarchy']}%. Confidence: expected calibration error "
-            f"{m5['confidence'][I]['ece']} (ICD) / {m5['confidence'][S]['ece']} (SNOMED); the most confident 25% of rows are "
-            f"right {100 * m5['confidence'][I]['curve'][4]['accuracy']:.0f}% / {100 * m5['confidence'][S]['curve'][4]['accuracy']:.0f}% "
-            f"of the time, but 98% precision is reached on only {m5['confidence'][I]['coverage_at_98']}% / "
-            f"{m5['confidence'][S]['coverage_at_98']}% of rows. Latency per term: GPU median 225 ms (p95 272), CPU median 1.16 s "
-            "(p95 1.72); no LLM calls.", small)]
+            f"{m5['confidence'][I]['ece']} (ICD) / {m5['confidence'][S]['ece']} (SNOMED); 98% precision is reached on only {m5['confidence'][I]['coverage_at_98']}% / "
+            f"{m5['confidence'][S]['coverage_at_98']}% of rows. <b>Selective accuracy</b> (answer the most confident share, flag the "
+            "rest <i>low_confidence</i> for review): " + "; ".join(f"{int(c * 100)}% → {acc_at(I, c):.1f} / {acc_at(S, c):.1f}"
+                                                                   for c in (0.25, 0.5, 0.75, 1.0)) +
+            " (ICD / SNOMED; ICD at 100% is before coupling, which adds +0.6). <b>Honest ceilings</b> measured on the training "
+            f"data: identical normalized terms get the same SNOMED code in only {ceil['snomed_pair_agreement']}% of row pairs; "
+            f"{ceil['near_twin_snomed']}% (SNOMED) and {ceil['near_twin_icd']}% (ICD) of in-pool ranking errors are near twins "
+            "(gold and predicted names with char-cosine ≥ 0.5). The brief cites ~85% for the best published systems on a "
+            "comparable task and ~74% inter-annotator agreement. Latency per term: GPU median 225 ms (p95 272), CPU median 1.16 s "
+            "(p95 1.72); no LLM calls.", small),
+          Image(str(ROOT / "ml_pipeline" / "figures" / "12_coverage_curve.png"), width=9.5 * cm, height=6.46 * cm)]
 
 story += [P("3. Design decisions (each backed by a measurement)", h1),
           P("• <b>Retrieval over the whole dictionary, not a classifier</b>: 466 of 867 ICD and 2,964 of 4,335 SNOMED gold codes "
@@ -122,7 +137,14 @@ story += [P("6. Innovations", h1),
 story += [P("7. Tried and abandoned", h1),
           P("BM25 in the fusion (hurt recall); scoring ICD siblings with the cross-encoder (no gain, 3× cost); joint coupling "
             "(net zero); tuning the ICD category margin (fold choices 0 / 0.02 / 0.1, gain within noise); the optional LLM "
-            "adjudicator (M6) was not built for lack of time.")]
+            "adjudicator (M6) was not built for lack of time. <b>Ranker feature rebuild</b> (string, term, structure and pool "
+            "features; inner-split objective search): ICD " + f"{rf[I]['variants']['all']['diff']:+.2f}, SNOMED "
+            f"{rf[S]['variants']['all']['diff']:+.2f} points, intervals include zero, so not adopted (the ranker is saturated on "
+            "these signals). <b>v2 experiments</b> after a function-by-function audit (AUDIT.md): ICD knowledge synonyms from "
+            "simple-icd-10-cm and the CDC FY2026 index raised out-of-fold ICD recall@10 from "
+            f"{c0[I]['best_R@10/30/80'][0]:.1f} to {c1[I]['best_R@10/30/80'][0]:.1f} (recall@80 {c0[I]['best_R@10/30/80'][2]:.1f} → "
+            f"{c1[I]['best_R@10/30/80'][2]:.1f}); a Qwen3-8B query rewrite and a SapBERT fine-tune were prepared on Kaggle but not run "
+            "before the deadline. None of these is in the shipped model.")]
 story += [P("8. Challenges", h1),
           P("Terms almost never repeat (1% leave-one-out) while codes do; heavy abbreviation and OCR noise; labels that follow an "
             "older ICD release (43 rows use codes that are parents here) and some label noise; about half of the side-naming terms keep "
@@ -139,7 +161,9 @@ res = [res[0]] + [[P(c, small) for c in r] for r in res[1:]]
 story += [P("9. External resources", h1), table(res, [7.4 * cm, 4.6 * cm, 5.2 * cm], fs=7.0),
           P("Reproduce: <font face='Courier'>termmap build-index; termmap train; termmap predict --input eval.csv --output "
             "predictions.csv</font>. Fixed seeds, deterministic kernels, tie-breaks by code string; a test asserts byte-identical "
-            "predictions across runs.", small)]
+            "predictions across runs. <b>Data handling</b>: the data is proprietary and never committed (private repo, git-ignored "
+            "data and artifacts); GPU training used <b>private Kaggle datasets and notebooks</b> on the owner's account, deleted after "
+            "the deadline; nothing was sent to any third-party or LLM API, and the shipped pipeline uses no LLM.", small)]
 
 out = ROOT / "docs" / "TermMap_writeup.pdf"
 SimpleDocTemplate(str(out), pagesize=A4, leftMargin=1.6 * cm, rightMargin=1.6 * cm, topMargin=1.3 * cm,
