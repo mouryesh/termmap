@@ -35,7 +35,7 @@ near twins (char 3-4-gram cosine ≥ 0.5). The project brief cites about 85% for
 comparable task, with inter-annotator agreement about 74% (not re-verified here).
 
 The brief's 95% bar is **not** reached; the candidate-pool ceiling (86% SNOMED) shows retrieval recall is
-the binding limit. Full methodology, ablations, error analysis and caveats: [reports/validation.md](reports/validation.md).
+the binding limit. Full methodology, ablations, error analysis and caveats are in the write-up PDF (submitted separately); the detailed validation report quotes proprietary training terms, so it is kept out of the repository. The ranker feature study is in [reports/ranker_features.md](reports/ranker_features.md).
 Folds are GroupKFold on an in-memory canonical form of the chunk text (no ID column is created).
 
 ## Setup
@@ -173,7 +173,7 @@ src/termmap/rerank/         cross_encoder, features, ltr, train_ce, train_ltr
 app/demo.py                 Streamlit demo
 tests/                      unit tests per stage, synthetic end-to-end fixture, determinism test
 ml_pipeline/                pipeline ledger (PIPELINE.md), figure scripts and figures
-reports/                    validation.md, feature importances, summaries
-docs/                       architecture diagram, write-up PDF
+reports/                    ranker feature study, feature importances, summaries
+docs/                       architecture diagram, write-up builder (PDF submitted separately)
 artifacts/  data/           git-ignored
 ```
