@@ -1,0 +1,21 @@
+# Pinned for reproducibility. Tested: Python 3.12.10 on Windows 11 (clean venv install, 18 Oct 2026); v1 used 3.11.
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch==2.5.1
+transformers==4.46.3
+sentence-transformers==3.3.1
+faiss-cpu==1.9.0.post1
+bm25s==0.2.6
+scikit-learn==1.5.2
+lightgbm==4.5.0
+symspellpy==6.7.8
+rapidfuzz==3.10.1
+pandas==2.2.3
+pyarrow==18.1.0
+numpy==1.26.4
+scipy==1.14.1
+openpyxl==3.1.5
+pyyaml==6.0.2
+streamlit==1.40.2
+matplotlib==3.9.3
+pytest==8.3.4
+python-dotenv==1.0.1

@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "termmap"
+version = "1.0.0"
+description = "Clinical term -> ICD-10-CM + SNOMED CT coding (retrieval, cross-encoder, LambdaRank)"
+requires-python = ">=3.11"
+
+[project.scripts]
+termmap = "termmap.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

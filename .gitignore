@@ -1,0 +1,32 @@
+# proprietary data and derived artifacts — never commit
+data/
+artifacts/
+artifacts_v2/
+*.csv
+!tests/fixtures/*.csv
+!reports/feature_importance_*.csv
+*.xlsx
+*.parquet
+predictions*.csv
+.env
+# python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+# local
+logs/
+ml_pipeline/data_profile.json
+eval_input.csv
+demo_inputs.csv
+demo_cases.csv
+
+# contain short example terms from the training data; submitted directly, never committed
+reports/validation.md
+reports/error_analysis*.md
+reports/error_analysis*.json
+reports/report.pdf
+reports/pdf/report.html
+reports/pdf/fig_results.png
+docs/TermMap_writeup.pdf
